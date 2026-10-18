@@ -154,13 +154,12 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             try {
                 var file = processingEnv.getFiler().createSourceFile(generated, pkg);
                 try (Writer writer = file.openWriter()) {
-                    String quoted = java.util.Arrays.stream(annotation.allowedDependencies())
-                            .map(v -> "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
-                            .collect(java.util.stream.Collectors.joining(", "));
+                    String quoted = quote(annotation.allowedDependencies());
+                    String quotedAfter = quote(annotation.after());
                     writer.write("package " + packageName + ";\n");
                     writer.write("@dev.oreo.modulith.core.PluginModule(value=\"" + id +
-                            "\", dependencies={" + quoted + "}, configuration=" +
-                            annotation.configuration() + ")\n");
+                            "\", dependencies={" + quoted + "}, after={" + quotedAfter + "}, configuration=" +
+                            annotation.configuration() + ", optional=" + annotation.optional() + ")\n");
                     writer.write("public final class __MinecraftModulithModule implements " +
                             "dev.oreo.modulith.core.MinecraftModule {}\n");
                 }
@@ -445,6 +444,12 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             validateReference(sourceModule, owners, getCurrentPath());
             return super.visitMemberSelect(node, unused);
         }
+    }
+
+    private static String quote(String[] values) {
+        return java.util.Arrays.stream(values)
+                .map(v -> "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     private record ModuleInfo(

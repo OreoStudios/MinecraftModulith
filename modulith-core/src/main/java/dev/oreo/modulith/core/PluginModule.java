@@ -18,6 +18,19 @@ public @interface PluginModule {
 
     String[] dependencies() default {};
 
+    /**
+     * Ordering-only constraints: this module starts after the listed module ids when they are present,
+     * but gains no API access and still starts if one of them failed, was skipped or is absent.
+     */
+    String[] after() default {};
+
     /** Enables module-specific configuration when a provider is installed. */
     boolean configuration() default false;
+
+    /**
+     * Optional modules may fail to start without aborting the runtime. A failed optional module is
+     * marked {@link ModuleState#FAILED}, its services are withdrawn, and optional modules depending on
+     * it are {@link ModuleState#SKIPPED}. Required modules depending on it abort startup.
+     */
+    boolean optional() default false;
 }

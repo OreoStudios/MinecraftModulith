@@ -30,6 +30,7 @@ public final class ModuleRuntime implements AutoCloseable {
     private final ConcurrentHashMap<Class<?>, ModuleServices.ServiceEntry> services = new ConcurrentHashMap<>();
     private final Map<String, RunningModule> running = new LinkedHashMap<>();
     private final Map<String, ModuleState> states = new LinkedHashMap<>();
+    private final Map<String, Throwable> failures = new LinkedHashMap<>();
     private boolean started;
 
     private ModuleRuntime(
@@ -68,7 +69,21 @@ public final class ModuleRuntime implements AutoCloseable {
 
         try {
             for (ModuleDescriptor descriptor : startupOrder) {
-                startOne(descriptor);
+                String unavailable = unavailableDependency(descriptor);
+                if (unavailable != null) {
+                    skip(descriptor, unavailable);
+                    continue;
+                }
+                try {
+                    startOne(descriptor);
+                } catch (ModulithException exception) {
+                    if (!descriptor.optional()) {
+                        throw exception;
+                    }
+                    failures.put(descriptor.id(), rootCause(exception));
+                    logger.log(Level.SEVERE, "[MinecraftModulith] Optional module '" + descriptor.id()
+                            + "' failed to start; continuing without it", exception);
+                }
             }
             started = true;
             return this;
@@ -78,31 +93,59 @@ public final class ModuleRuntime implements AutoCloseable {
         }
     }
 
+    private String unavailableDependency(ModuleDescriptor descriptor) {
+        for (String dependency : descriptor.dependencyModules()) {
+            if (states.get(dependency) != ModuleState.RUNNING) {
+                return dependency;
+            }
+        }
+        return null;
+    }
+
+    private void skip(ModuleDescriptor descriptor, String dependency) {
+        String reason = "dependency '" + dependency + "' is " + states.get(dependency);
+        if (!descriptor.optional()) {
+            states.put(descriptor.id(), ModuleState.FAILED);
+            throw new ModulithException("Required module '" + descriptor.id() + "' cannot start: " + reason);
+        }
+        states.put(descriptor.id(), ModuleState.SKIPPED);
+        failures.put(descriptor.id(), new ModulithException("Skipped: " + reason));
+        logger.warning(() -> "[MinecraftModulith] Skipped optional module '" + descriptor.id() + "': " + reason);
+    }
+
+    private static Throwable rootCause(Throwable failure) {
+        Throwable cause = failure;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
+
     private void startOne(ModuleDescriptor descriptor) {
         states.put(descriptor.id(), ModuleState.STARTING);
         LifecycleScope lifecycle = new LifecycleScope();
-        MinecraftModule instance = instantiate(descriptor);
-        ModuleServices moduleServices = new ModuleServices(
-                descriptor.id(),
-                descriptor.parsedDependencies(),
-                services
-        );
-        ModuleConfiguration configuration = descriptor.configurationEnabled()
-                ? Objects.requireNonNull(configurationProvider.load(descriptor), "configurationProvider returned null")
-                : ModuleConfiguration.empty();
-
-        ModuleContext context = new ModuleContext(
-                descriptor.id(),
-                moduleServices,
-                eventBus,
-                lifecycle,
-                configuration,
-                platformServices,
-                Logger.getLogger(logger.getName() + "." + descriptor.id())
-        );
-
         long startedAt = System.nanoTime();
         try {
+            MinecraftModule instance = instantiate(descriptor);
+            ModuleServices moduleServices = new ModuleServices(
+                    descriptor.id(),
+                    descriptor.parsedDependencies(),
+                    services
+            );
+            ModuleConfiguration configuration = descriptor.configurationEnabled()
+                    ? Objects.requireNonNull(configurationProvider.load(descriptor), "configurationProvider returned null")
+                    : ModuleConfiguration.empty();
+
+            ModuleContext context = new ModuleContext(
+                    descriptor.id(),
+                    moduleServices,
+                    eventBus,
+                    lifecycle,
+                    configuration,
+                    platformServices,
+                    Logger.getLogger(logger.getName() + "." + descriptor.id())
+            );
+
             ModuleComponents components = new ModuleComponents(
                     context, componentTypes.getOrDefault(descriptor.id(), List.of()));
             context.setComponents(components);
@@ -112,13 +155,16 @@ public final class ModuleRuntime implements AutoCloseable {
             states.put(descriptor.id(), ModuleState.RUNNING);
             metrics.moduleStarted(descriptor.id(), System.nanoTime() - startedAt);
             logger.info(() -> "[MinecraftModulith] Started module '" + descriptor.id() + "'");
-        } catch (Exception exception) {
+        } catch (Exception | LinkageError exception) {
+            // LinkageError covers optional plugin APIs missing from the server classpath.
             states.put(descriptor.id(), ModuleState.FAILED);
             try {
                 lifecycle.close();
             } catch (RuntimeException cleanupFailure) {
                 exception.addSuppressed(cleanupFailure);
             }
+            // Dependents must not observe services from a module that never finished starting.
+            services.values().removeIf(entry -> entry.owner().equals(descriptor.id()));
             throw new ModulithException("Failed to start module '" + descriptor.id() + "'", exception);
         }
     }
@@ -208,6 +254,11 @@ public final class ModuleRuntime implements AutoCloseable {
         return Map.copyOf(states);
     }
 
+    /** Root causes of optional modules that failed or were skipped during startup. */
+    public synchronized Map<String, Throwable> failures() {
+        return Map.copyOf(failures);
+    }
+
     public EventBus events() {
         return eventBus;
     }
@@ -230,8 +281,17 @@ public final class ModuleRuntime implements AutoCloseable {
                 startupOrder.stream().map(ModuleDescriptor::id).toList(),
                 services.size(),
                 incomplete,
-                metrics.snapshot()
+                metrics.snapshot(),
+                failureMessages()
         );
+    }
+
+    private Map<String, String> failureMessages() {
+        Map<String, String> messages = new LinkedHashMap<>();
+        failures.forEach((id, failure) -> messages.put(id, failure.getMessage() != null
+                ? failure.getClass().getSimpleName() + ": " + failure.getMessage()
+                : failure.getClass().getName()));
+        return messages;
     }
 
     public String graphMermaid() {
@@ -342,7 +402,9 @@ public final class ModuleRuntime implements AutoCloseable {
                     annotation.value(),
                     List.of(annotation.dependencies()),
                     type,
-                    annotation.configuration()
+                    annotation.configuration(),
+                    annotation.optional(),
+                    List.of(annotation.after())
             );
         }
     }

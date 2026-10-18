@@ -45,6 +45,11 @@ final class ModuleGraph {
                     throw new ModuleDependencyException("Module '" + module.id() + "' cannot depend on itself");
                 }
             }
+            for (String after : module.after()) {
+                if (after.equals(module.id())) {
+                    throw new ModuleDependencyException("Module '" + module.id() + "' cannot start after itself");
+                }
+            }
         }
 
         Map<String, Visit> states = new HashMap<>();
@@ -81,6 +86,13 @@ final class ModuleGraph {
         for (String rawDependency : module.dependencies()) {
             ModuleDependency dependency = ModuleDependency.parse(rawDependency);
             visit(byId.get(dependency.moduleId()), byId, states, stack, sorted);
+        }
+        for (String after : module.after()) {
+            // Ordering constraints on modules that are not installed are ignored.
+            ModuleDescriptor predecessor = byId.get(after);
+            if (predecessor != null) {
+                visit(predecessor, byId, states, stack, sorted);
+            }
         }
         stack.pop();
         states.put(module.id(), Visit.DONE);

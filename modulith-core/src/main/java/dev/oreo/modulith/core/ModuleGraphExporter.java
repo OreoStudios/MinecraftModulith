@@ -27,6 +27,9 @@ public final class ModuleGraphExporter {
                 }
                 out.append(" ").append(node(dependency.moduleId())).append("\n");
             }
+            for (String after : module.after()) {
+                out.append("  ").append(node(module.id())).append(" -.-> ").append(node(after)).append("\n");
+            }
         }
         return out.toString();
     }
@@ -49,6 +52,10 @@ public final class ModuleGraphExporter {
                     out.append(" [label=\"").append(escape(dependency.apiName())).append("\"]");
                 }
                 out.append(";\n");
+            }
+            for (String after : module.after()) {
+                out.append("  \"").append(escape(module.id())).append("\" -> \"")
+                        .append(escape(after)).append("\" [style=dashed];\n");
             }
         }
         out.append("}\n");

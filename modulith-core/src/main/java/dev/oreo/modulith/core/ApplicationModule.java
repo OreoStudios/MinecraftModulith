@@ -8,5 +8,9 @@ import java.lang.annotation.*;
 public @interface ApplicationModule {
     String id();
     String[] allowedDependencies() default {};
+    /** See {@link PluginModule#after()}. */
+    String[] after() default {};
     boolean configuration() default false;
+    /** See {@link PluginModule#optional()}. */
+    boolean optional() default false;
 }

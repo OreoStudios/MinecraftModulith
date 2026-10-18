@@ -6,5 +6,7 @@ public enum ModuleState {
     RUNNING,
     STOPPING,
     STOPPED,
-    FAILED
+    FAILED,
+    /** Not started because a module it depends on is unavailable. */
+    SKIPPED
 }

@@ -9,7 +9,7 @@
 
 MinecraftModulith helps you build large Paper/Folia plugins as a set of explicit, testable modules instead of one tightly coupled codebase. It provides module boundaries, named APIs, dependency validation, lifecycle management, constructor injection, events, event recovery and retry, diagnostics, typed configuration, scheduling adapters, observability, and test utilities while still producing a normal Minecraft plugin.
 
-> **Current release:** `v0.4.0`  
+> **Current release:** `v0.5.0`  
 > **Java:** 21  
 > **Platform:** Paper 1.21.x + Folia-aware scheduling
 
@@ -58,7 +58,7 @@ MinecraftModulith is published to two repositories — use whichever suits your 
 
 | Repository | URL | Best for |
 | --- | --- | --- |
-| **Oreo Studios Maven** | `https://maven.oreostudios.fr/releases` | Recommended — dedicated, always up to date |
+| **Oreo Studios Maven** | `https://maven.oreostudios.fr/oreostudioslib` | Recommended — dedicated, always up to date |
 | **JitPack** | `https://jitpack.io` | Fallback / GitHub-based builds |
 
 ### Gradle Kotlin DSL — Oreo Studios Maven (recommended)
@@ -66,24 +66,24 @@ MinecraftModulith is published to two repositories — use whichever suits your 
 ```kotlin
 repositories {
     mavenCentral()
-    maven("https://maven.oreostudios.fr/releases")
+    maven("https://maven.oreostudios.fr/oreostudioslib")
     maven("https://repo.papermc.io/repository/maven-public/")
 }
 
 dependencies {
-    implementation("dev.oreo.modulith:modulith-paper:0.4.0")
+    implementation("dev.oreo.modulith:modulith-paper:0.5.0")
 
-    annotationProcessor("dev.oreo.modulith:modulith-processor:0.4.0")
+    annotationProcessor("dev.oreo.modulith:modulith-processor:0.5.0")
 
     // Optional: pick one or more persistence backends
-    implementation("dev.oreo.modulith:modulith-events-sqlite:0.4.0")
-    implementation("dev.oreo.modulith:modulith-events-jdbc:0.4.0")
-    implementation("dev.oreo.modulith:modulith-events-mongodb:0.4.0")
+    implementation("dev.oreo.modulith:modulith-events-sqlite:0.5.0")
+    implementation("dev.oreo.modulith:modulith-events-jdbc:0.5.0")
+    implementation("dev.oreo.modulith:modulith-events-mongodb:0.5.0")
 
     // Optional: Prometheus / OpenTelemetry reporting
-    implementation("dev.oreo.modulith:modulith-observability:0.4.0")
+    implementation("dev.oreo.modulith:modulith-observability:0.5.0")
 
-    testImplementation("dev.oreo.modulith:modulith-test:0.4.0")
+    testImplementation("dev.oreo.modulith:modulith-test:0.5.0")
 }
 ```
 
@@ -97,30 +97,30 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.el211.MinecraftModulith:modulith-paper:v0.4.0")
+    implementation("com.github.el211.MinecraftModulith:modulith-paper:v0.5.0")
 
     annotationProcessor(
-        "com.github.el211.MinecraftModulith:modulith-processor:v0.4.0"
+        "com.github.el211.MinecraftModulith:modulith-processor:v0.5.0"
     )
 
     // Optional: pick one or more persistence backends
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-events-sqlite:v0.4.0"
+        "com.github.el211.MinecraftModulith:modulith-events-sqlite:v0.5.0"
     )
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.4.0"
+        "com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.5.0"
     )
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.4.0"
+        "com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.5.0"
     )
 
     // Optional: Prometheus / OpenTelemetry reporting
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-observability:v0.4.0"
+        "com.github.el211.MinecraftModulith:modulith-observability:v0.5.0"
     )
 
     testImplementation(
-        "com.github.el211.MinecraftModulith:modulith-test:v0.4.0"
+        "com.github.el211.MinecraftModulith:modulith-test:v0.5.0"
     )
 }
 ```
@@ -140,10 +140,10 @@ For platform-independent usage, use `modulith-core` instead of `modulith-paper`.
 | `modulith-observability` | Dependency-free Prometheus exposition and optional OpenTelemetry reporter |
 | `modulith-test` | Module-focused test harness and architecture assertions |
 
-**Oreo Studios Maven** — group `dev.oreo.modulith`, artifact `<name>`, version `0.4.0`  
-**JitPack** — group `com.github.el211.MinecraftModulith`, artifact `<name>`, version `v0.4.0`
+**Oreo Studios Maven** — group `dev.oreo.modulith`, artifact `<name>`, version `0.5.0`  
+**JitPack** — group `com.github.el211.MinecraftModulith`, artifact `<name>`, version `v0.5.0`
 
-[Oreo Studios Maven browser](https://maven.oreostudios.fr/#/) · [JitPack build page](https://jitpack.io/#el211/MinecraftModulith/v0.4.0)
+[Oreo Studios Maven browser](https://maven.oreostudios.fr/#/) · [JitPack build page](https://jitpack.io/#el211/MinecraftModulith/v0.5.0)
 
 ## Quick start
 
@@ -295,6 +295,46 @@ public final class MyPlugin extends JavaPlugin {
 
 The runtime discovers modules, validates their dependencies, starts them in deterministic order, and shuts them down safely.
 
+## Optional modules
+
+By default startup is all-or-nothing: if any module fails, every module that already started is
+stopped in reverse order and the failure is rethrown. That is the right behaviour for storage,
+configuration or anything the rest of the plugin cannot live without.
+
+Features that depend on an optional server plugin (PacketEvents, PlaceholderAPI, WorldGuard, …)
+can opt out of that with `optional = true`:
+
+```java
+@PluginModule(value = "tab", dependencies = "configuration", optional = true)
+public final class TabModule implements MinecraftModule, TabServices { ... }
+```
+
+When an optional module fails to start, including with a `LinkageError` such as
+`NoClassDefFoundError` from a missing plugin API:
+
+- it is marked `FAILED`, its lifecycle scope is closed, and services it published are withdrawn;
+- optional modules that depend on it are marked `SKIPPED` without being started;
+- a **required** module that depends on it aborts startup, exactly as before;
+- every other module keeps starting normally.
+
+Failures are available through `runtime.failures()` (root cause per module),
+`runtime.diagnostics().failures()` and `/modulith modules`.
+
+### Ordering without a hard dependency
+
+`dependencies` means "I need this module running". When you only need a module to start *after*
+another one, use `after` so a failure upstream does not cascade:
+
+```java
+@PluginModule(value = "holograms", dependencies = "configuration::services", after = "tab")
+```
+
+`after` grants no API access, is ignored when the named module is not installed, and does not
+require that module to be `RUNNING`. It still participates in cycle detection.
+
+`@ApplicationModule(id = "...", optional = true, after = {...})` works the same way for
+package-declared modules.
+
 ## Compile-time architecture validation
 
 Add `modulith-processor` as an annotation processor and invalid architecture can fail during compilation.
@@ -374,7 +414,7 @@ modulith = PaperModulith.builder(plugin)
 
 ```kotlin
 // build.gradle.kts
-implementation("com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.4.0")
+implementation("com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.5.0")
 runtimeOnly("org.postgresql:postgresql:42.7.4")
 ```
 
@@ -393,7 +433,7 @@ The schema is created automatically. `JdbcEventPublicationRegistry` also exposes
 
 ```kotlin
 // build.gradle.kts
-implementation("com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.4.0")
+implementation("com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.5.0")
 ```
 
 ```java
@@ -619,7 +659,7 @@ PaperModulith.builder(this)
 
 | Subcommand | Output |
 | --- | --- |
-| `/modulith modules` | All module IDs and their current state |
+| `/modulith modules` | All module IDs, their current state and why a module failed or was skipped |
 | `/modulith events` | Published, completed, failed, and incomplete event counts |
 | `/modulith graph` | Mermaid module dependency graph sent to the sender |
 
@@ -784,7 +824,7 @@ pluginManagement {
 ```kotlin
 // build.gradle.kts
 plugins {
-    id("dev.oreo.modulith") version "v0.4.0"
+    id("dev.oreo.modulith") version "v0.5.0"
 }
 ```
 
@@ -884,7 +924,7 @@ To publish all library modules to your local Maven repository:
 Current release:
 
 ```text
-v0.4.0
+v0.5.0
 ```
 
 ## License

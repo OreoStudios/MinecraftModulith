@@ -34,7 +34,11 @@ public final class ModulithAdminCommand implements BasicCommand {
             RuntimeDiagnostics diagnostics = runtime.diagnostics();
             sender.sendMessage("[MinecraftModulith] " + diagnostics.states().size() + " modules:");
             diagnostics.states().entrySet().stream().sorted(java.util.Map.Entry.comparingByKey())
-                    .forEach(entry -> sender.sendMessage(" - " + entry.getKey() + ": " + entry.getValue()));
+                    .forEach(entry -> {
+                        String reason = diagnostics.failures().get(entry.getKey());
+                        sender.sendMessage(" - " + entry.getKey() + ": " + entry.getValue()
+                                + (reason != null ? " (" + reason + ")" : ""));
+                    });
             return;
         }
         if (args[0].equalsIgnoreCase("events")) {

@@ -9,10 +9,22 @@ public record RuntimeDiagnostics(
         List<String> startupOrder,
         int publishedServices,
         long incompleteEventPublications,
-        ModulithMetrics.Snapshot metrics
+        ModulithMetrics.Snapshot metrics,
+        Map<String, String> failures
 ) {
     public RuntimeDiagnostics {
         states = Map.copyOf(states);
         startupOrder = List.copyOf(startupOrder);
+        failures = Map.copyOf(failures);
+    }
+
+    public RuntimeDiagnostics(
+            Map<String, ModuleState> states,
+            List<String> startupOrder,
+            int publishedServices,
+            long incompleteEventPublications,
+            ModulithMetrics.Snapshot metrics
+    ) {
+        this(states, startupOrder, publishedServices, incompleteEventPublications, metrics, Map.of());
     }
 }

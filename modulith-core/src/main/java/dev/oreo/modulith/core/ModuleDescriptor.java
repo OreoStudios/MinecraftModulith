@@ -8,10 +8,22 @@ public record ModuleDescriptor(
         String id,
         List<String> dependencies,
         Class<? extends MinecraftModule> implementation,
-        boolean configurationEnabled
+        boolean configurationEnabled,
+        boolean optional,
+        List<String> after
 ) {
     public ModuleDescriptor {
         dependencies = List.copyOf(dependencies);
+        after = List.copyOf(after);
+    }
+
+    public ModuleDescriptor(
+            String id,
+            List<String> dependencies,
+            Class<? extends MinecraftModule> implementation,
+            boolean configurationEnabled
+    ) {
+        this(id, dependencies, implementation, configurationEnabled, false, List.of());
     }
 
     public List<ModuleDependency> parsedDependencies() {
