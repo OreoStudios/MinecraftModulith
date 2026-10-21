@@ -1,6 +1,8 @@
 package dev.oreo.modulith.paper;
 
 import dev.oreo.modulith.core.ModulithException;
+import io.papermc.paper.ServerBuildInfo;
+import net.kyori.adventure.key.Key;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -26,13 +28,14 @@ final class FoliaSchedulerAdapter implements SchedulerAdapter {
         }
     }
 
+    /**
+     * Paper exposes the Folia scheduler methods too, with a synchronous fallback.
+     * Their existence does not mean regionized threading is enabled. Detect the
+     * actual server brand so the BukkitScheduler compatibility API stays usable
+     * on standard Paper and is rejected only on Folia.
+     */
     static boolean isSupported() {
-        try {
-            Bukkit.class.getMethod("getGlobalRegionScheduler");
-            return true;
-        } catch (NoSuchMethodException ignored) {
-            return false;
-        }
+        return ServerBuildInfo.buildInfo().isBrandCompatible(Key.key("papermc", "folia"));
     }
 
     @Override

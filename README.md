@@ -587,7 +587,7 @@ paper.scheduleLater(context, this::later, 20L);
 paper.scheduleTimer(context, this::tick, 0L, 20L);
 ```
 
-The `schedule`, `scheduleLater` and `scheduleTimer` methods dispatch through the **global** scheduler when Folia's scheduler API is available (with a standard Bukkit scheduler fallback). Use them for global coordination **only**, not player, entity or block operations on Folia.
+The `schedule`, `scheduleLater` and `scheduleTimer` methods dispatch through Folia's **global** scheduler on Folia and the standard Bukkit scheduler on Paper. MinecraftModulith detects actual Folia server branding, not merely the presence of scheduler methods (which also exist on Paper). Use these methods for global coordination **only**, not player, entity or block operations on Folia.
 
 Scheduled tasks owned by a module are cancelled automatically when that module stops.
 

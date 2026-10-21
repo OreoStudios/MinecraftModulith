@@ -11,7 +11,7 @@ MinecraftModulith owns and cancels scheduled tasks when their module closes. It 
 | Interact with a player or moving entity | `contexts.entity(context, entity, action)` | Scheduler following that entity |
 | Database/network/CPU work without unsafe Bukkit access | `contexts.async(context, action)` | Async scheduler |
 
-On standard Paper, the global, region and entity helpers fall back to the synchronous Bukkit scheduler, and async work uses Bukkit's async scheduler. When Folia scheduler APIs are available, MinecraftModulith uses those schedulers instead. **Do not assume code that works on Paper's main thread is safe in a Folia global callback.**
+On standard Paper, the global, region and entity helpers fall back to the synchronous Bukkit scheduler, and async work uses Bukkit's async scheduler. On **actual Folia servers**, MinecraftModulith uses Folia's schedulers. Paper also exposes these scheduler APIs, so simply detecting their presence would incorrectly classify Paper as Folia; the adapter checks server branding instead. **Do not assume code that works on Paper's main thread is safe in a Folia global callback.**
 
 The examples below are part of the compiled [`FoliaSchedulingExamples.java`](../example-plugin/src/main/java/dev/oreo/modulith/example/FoliaSchedulingExamples.java) source. These methods are not registered automatically: call them from a suitable module callback.
 
