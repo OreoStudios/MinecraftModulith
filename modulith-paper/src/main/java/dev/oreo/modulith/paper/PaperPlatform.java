@@ -55,19 +55,28 @@ public final class PaperPlatform {
         return listener;
     }
 
-    /** Scheduler-safe API that works on Paper and Folia global scheduling. */
+    /**
+     * Runs in the global scheduling context (Paper main scheduler fallback).
+     *
+     * <p>On Folia this is NOT an entity or region thread. Do not access players,
+     * entities or region-owned blocks from the callback. For those operations use
+     * {@link #contexts()} with {@link ModuleScheduler#entity} or
+     * {@link ModuleScheduler#region} instead.
+     */
     public ScheduledTaskHandle schedule(ModuleContext context, Runnable runnable) {
         ScheduledTaskHandle task = scheduler.run(runnable);
         context.lifecycle().onClose(task::cancel);
         return task;
     }
 
+    /** Delayed global-context task; same Folia ownership restrictions as {@link #schedule}. */
     public ScheduledTaskHandle scheduleLater(ModuleContext context, Runnable runnable, long delayTicks) {
         ScheduledTaskHandle task = scheduler.runLater(runnable, delayTicks);
         context.lifecycle().onClose(task::cancel);
         return task;
     }
 
+    /** Repeating global-context task; same Folia ownership restrictions as {@link #schedule}. */
     public ScheduledTaskHandle scheduleTimer(
             ModuleContext context,
             Runnable runnable,
@@ -81,7 +90,7 @@ public final class PaperPlatform {
 
     /**
      * Standard Paper-only scheduler compatibility method. Prefer {@link #schedule(ModuleContext, Runnable)}
-     * when Folia compatibility is required.
+     * for global-only coordination, or {@link #contexts()} for entity and region work on Folia.
      */
     public BukkitTask runTask(ModuleContext context, Runnable runnable) {
         ensurePaperScheduler();
@@ -219,7 +228,7 @@ public final class PaperPlatform {
     private void ensurePaperScheduler() {
         if (scheduler.folia()) {
             throw new ModulithException(
-                    "BukkitScheduler compatibility methods are unsafe on Folia; use schedule/scheduleLater/scheduleTimer"
+                    "BukkitScheduler compatibility methods are unsafe on Folia; use contexts().entity/region for world work or schedule() for global-only work"
             );
         }
     }

@@ -2,7 +2,11 @@ package dev.oreo.modulith.paper;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
-/** Scheduler abstraction that chooses standard Paper or Folia global scheduling. */
+/**
+ * Scheduler abstraction for global-context work, not arbitrary Bukkit world access.
+ * Use {@link ModuleScheduler#region} and {@link ModuleScheduler#entity} for
+ * location- and entity-owned work (including on servers exposing Folia schedulers).
+ */
 public interface SchedulerAdapter {
     ScheduledTaskHandle run(Runnable runnable);
 
