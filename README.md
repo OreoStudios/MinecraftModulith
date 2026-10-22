@@ -193,6 +193,8 @@ public final class HomesModule implements MinecraftModule {
 
 MinecraftModulith validates the declared dependency graph and keeps modules from reaching into implementation details they should not access.
 
+**Already have a plugin?** Follow the [incremental migration tutorial](docs/MIGRATING-AN-EXISTING-PLUGIN.md) to extract one command behind a named API without rewriting everything else. A working `/modbalance` example is included in `example-plugin`.
+
 ## Package-based module declaration
 
 As an alternative to implementing `MinecraftModule` on a class, you can declare a module directly on a package using `package-info.java`. The annotation processor generates a lifecycle anchor class automatically.
@@ -575,7 +577,7 @@ Bundled module YAML files can be copied from the plugin JAR as defaults.
 
 ## Paper & Folia scheduling
 
-MinecraftModulith provides a scheduler abstraction so module code does not need to care whether it is running on standard Paper or Folia.
+MinecraftModulith provides scheduling adapters for Paper and Folia, but **you must still choose the correct execution context**. On Folia, the global scheduler does **not** own player, entity, or block state. Scheduling alone does not make arbitrary Bukkit calls thread-safe.
 
 ```java
 PaperPlatform paper = context.platform(PaperPlatform.class);
@@ -585,7 +587,7 @@ paper.scheduleLater(context, this::later, 20L);
 paper.scheduleTimer(context, this::tick, 0L, 20L);
 ```
 
-MinecraftModulith detects Folia's global region scheduler when available and otherwise uses Paper's `BukkitScheduler`.
+The `schedule`, `scheduleLater` and `scheduleTimer` methods dispatch through Folia's **global** scheduler on Folia and the standard Bukkit scheduler on Paper. MinecraftModulith detects actual Folia server branding, not merely the presence of scheduler methods (which also exist on Paper). Use these methods for global coordination **only**, not player, entity or block operations on Folia.
 
 Scheduled tasks owned by a module are cancelled automatically when that module stops.
 
@@ -596,20 +598,22 @@ For full Folia compatibility, access explicit scheduling contexts through `Modul
 ```java
 ModuleScheduler contexts = context.platform(PaperPlatform.class).contexts();
 
-// Global context (equivalent to Folia's global region scheduler)
+// Global context (no player/entity/region ownership on Folia)
 contexts.global(context, this::tick);
 
-// Region context — required for world-state access on Folia
+// Region context — for blocks at a known location on Folia
 contexts.region(context, location, this::processChunk);
 
-// Entity context — required for entity-state access on Folia
+// Entity context — for players and moving entities on Folia
 contexts.entity(context, entity, this::moveEntity);
 
-// Async context
+// Async context — do not access unsafe Bukkit world/entity state here
 contexts.async(context, this::fetchFromDatabase);
 ```
 
-All returned task handles are owned by the module's lifecycle and cancelled automatically on disable.
+All returned task handles are owned by the module's lifecycle and cancelled automatically on disable. Cancellation does not undo a callback that is already running.
+
+**Important:** Never use `region(context, player.getLocation(), ...)` as a substitute for `entity(context, player, ...)`: the player can move between regions. Capture locations on their owning context before scheduling region work. See the [Folia scheduling guide](docs/FOLIA-SCHEDULING.md) for **compiled examples** of block edits, player operations, global work and async-to-entity handoff, and [Paper's Folia ownership guidance](https://docs.papermc.io/paper/dev/folia-support/).
 
 ## Module-owned commands
 

@@ -26,10 +26,19 @@ public final class ModuleScheduler {
         this.global = global;
     }
 
+    /**
+     * Global coordination only. On Folia this callback does not own any entity
+     * or block region, even though it runs synchronously in its own context.
+     */
     public ScheduledTaskHandle global(ModuleContext scope, Runnable work) {
         return own(scope, global.run(work));
     }
 
+    /**
+     * Executes with ownership of the region containing the provided location.
+     * Capture the location on the correct thread; do not use this for moving
+     * entities, which can migrate to another region before execution.
+     */
     public ScheduledTaskHandle region(ModuleContext scope, Location location, Runnable work) {
         Objects.requireNonNull(location);
         Objects.requireNonNull(work);
@@ -44,6 +53,10 @@ public final class ModuleScheduler {
         }
     }
 
+    /**
+     * Executes on the entity's owning scheduler, following it across regions.
+     * If the entity has retired, Folia may decline scheduling the task.
+     */
     public ScheduledTaskHandle entity(ModuleContext scope, Entity entity, Runnable work) {
         Objects.requireNonNull(entity);
         Objects.requireNonNull(work);
@@ -60,6 +73,10 @@ public final class ModuleScheduler {
         }
     }
 
+    /**
+     * Runs off-thread. Do not read or mutate region/entity-owned Bukkit state.
+     * Schedule any world changes back through {@link #region} or {@link #entity}.
+     */
     public ScheduledTaskHandle async(ModuleContext scope, Runnable work) {
         Objects.requireNonNull(work);
         if (!global.folia()) {
