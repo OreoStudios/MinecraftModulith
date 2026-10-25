@@ -193,7 +193,7 @@ public final class HomesModule implements MinecraftModule {
 
 MinecraftModulith validates the declared dependency graph and keeps modules from reaching into implementation details they should not access.
 
-**Already have a plugin?** Follow the [incremental migration tutorial](docs/MIGRATING-AN-EXISTING-PLUGIN.md) to extract one command behind a named API without rewriting everything else. A working `/modbalance` example is included in `example-plugin`.
+**Already have a plugin?** Follow the [incremental migration tutorial](docs/MIGRATING-AN-EXISTING-PLUGIN.md) to extract one command behind a named API without rewriting everything else. A working `/modbalance` example is included in `example-plugin`. For a live, full-scale example, see [OEssentials](https://github.com/OreoStudios/OEssentials).
 
 ## Package-based module declaration
 
