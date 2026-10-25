@@ -1,8 +1,8 @@
-package dev.oreo.modulith.example.audit.internal;
+package dev.oreo.modulith.example.audit.infra;
 
 import dev.oreo.modulith.core.ModuleComponent;
 import dev.oreo.modulith.example.audit.api.AuditService;
-import dev.oreo.modulith.example.economy.EconomyService;
+import dev.oreo.modulith.example.economy.api.EconomyService;
 import java.util.UUID;
 
 /** Demonstrates named API exposure and automatic constructor injection. */

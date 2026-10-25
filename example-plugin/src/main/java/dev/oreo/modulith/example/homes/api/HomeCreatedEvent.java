@@ -1,4 +1,4 @@
-package dev.oreo.modulith.example.homes;
+package dev.oreo.modulith.example.homes.api;
 
 import dev.oreo.modulith.core.ModuleApi;
 

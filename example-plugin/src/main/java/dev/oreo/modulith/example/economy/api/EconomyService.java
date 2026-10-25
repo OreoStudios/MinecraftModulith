@@ -1,4 +1,4 @@
-package dev.oreo.modulith.example.economy;
+package dev.oreo.modulith.example.economy.api;
 
 import dev.oreo.modulith.core.ModuleApi;
 

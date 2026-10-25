@@ -1,11 +1,11 @@
-package dev.oreo.modulith.example.rewards;
+package dev.oreo.modulith.example.rewards.lifecycle;
 
 import dev.oreo.modulith.core.EventDelivery;
 import dev.oreo.modulith.core.MinecraftModule;
 import dev.oreo.modulith.core.ModuleContext;
 import dev.oreo.modulith.core.ModuleListener;
 import dev.oreo.modulith.core.PluginModule;
-import dev.oreo.modulith.example.homes.HomeCreatedEvent;
+import dev.oreo.modulith.example.homes.api.HomeCreatedEvent;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;

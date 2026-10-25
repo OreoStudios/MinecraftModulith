@@ -1,19 +1,20 @@
-package dev.oreo.modulith.example.economy;
+package dev.oreo.modulith.example.economy.lifecycle;
 
 import dev.oreo.modulith.core.MinecraftModule;
 import dev.oreo.modulith.core.ModuleContext;
 import dev.oreo.modulith.core.PluginModule;
+import dev.oreo.modulith.example.economy.api.EconomyService;
+import dev.oreo.modulith.example.economy.infra.InMemoryEconomyRepository;
 
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @PluginModule(value = "economy", configuration = true)
 public final class EconomyModule implements MinecraftModule, EconomyService {
-    private final Map<UUID, Long> balances = new ConcurrentHashMap<>();
+    private InMemoryEconomyRepository balances;
 
     @Override
     public void enable(ModuleContext context) {
+        balances = new InMemoryEconomyRepository();
         context.services().publish(EconomyService.class, this);
 
         if (context.config().get("starting-balance") == null) {
@@ -24,17 +25,11 @@ public final class EconomyModule implements MinecraftModule, EconomyService {
 
     @Override
     public long balance(UUID playerId) {
-        return balances.computeIfAbsent(
-                playerId,
-                ignored -> 100L
-        );
+        return balances.balance(playerId);
     }
 
     @Override
     public void deposit(UUID playerId, long amount) {
-        if (amount < 0) {
-            throw new IllegalArgumentException("amount must be >= 0");
-        }
-        balances.merge(playerId, amount, Long::sum);
+        balances.deposit(playerId, amount);
     }
 }

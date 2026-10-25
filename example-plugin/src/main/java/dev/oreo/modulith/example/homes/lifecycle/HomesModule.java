@@ -1,10 +1,11 @@
-package dev.oreo.modulith.example.homes;
+package dev.oreo.modulith.example.homes.lifecycle;
 
 import dev.oreo.modulith.core.EventCompletionPolicy;
 import dev.oreo.modulith.core.MinecraftModule;
 import dev.oreo.modulith.core.ModuleContext;
 import dev.oreo.modulith.core.PluginModule;
-import dev.oreo.modulith.example.economy.EconomyService;
+import dev.oreo.modulith.example.economy.api.EconomyService;
+import dev.oreo.modulith.example.homes.api.HomeCreatedEvent;
 import dev.oreo.modulith.paper.PaperPlatform;
 import org.bukkit.entity.Player;
 

@@ -1,6 +1,6 @@
-package dev.oreo.modulith.example.migration.balance;
+package dev.oreo.modulith.example.migration.balance.internal;
 
-import dev.oreo.modulith.example.economy.EconomyService;
+import dev.oreo.modulith.example.economy.api.EconomyService;
 import java.util.Objects;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;

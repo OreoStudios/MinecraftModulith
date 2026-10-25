@@ -1,9 +1,10 @@
-package dev.oreo.modulith.example.migration.balance;
+package dev.oreo.modulith.example.migration.balance.lifecycle;
 
 import dev.oreo.modulith.core.MinecraftModule;
 import dev.oreo.modulith.core.ModuleContext;
 import dev.oreo.modulith.core.PluginModule;
-import dev.oreo.modulith.example.economy.EconomyService;
+import dev.oreo.modulith.example.economy.api.EconomyService;
+import dev.oreo.modulith.example.migration.balance.internal.BalanceCommand;
 import dev.oreo.modulith.paper.PaperPlatform;
 
 /**
