@@ -143,7 +143,7 @@ For platform-independent usage, use `modulith-core` instead of `modulith-paper`.
 **Oreo Studios Maven** — group `dev.oreo.modulith`, artifact `<name>`, version `0.5.0`  
 **JitPack** — group `com.github.el211.MinecraftModulith`, artifact `<name>`, version `v0.5.0`
 
-[Oreo Studios Maven browser](https://maven.oreostudios.fr/#/) · [JitPack build page](https://jitpack.io/#el211/MinecraftModulith/v0.5.0)
+[Oreo Studios Maven browser](https://maven.oreostudios.fr/#/oreostudioslib/dev/oreo/modulith) · [JitPack build page](https://jitpack.io/#el211/MinecraftModulith/v0.5.0)
 
 ## Quick start
 
