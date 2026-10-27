@@ -38,7 +38,7 @@ public final class MinecraftModulithPlugin implements Plugin<Project> {
 
         TaskProvider<?> docs = project.getTasks().register("modulithDocs", task -> {
             task.setGroup("documentation");
-            task.setDescription("Generates docs/modulith/modules.md and modules.mmd from discovered modules.");
+            task.setDescription("Generates build/reports/modulith/modules.md and modules.mmd from discovered modules.");
             task.dependsOn(verify);
             task.doLast(t -> {
                 try {
