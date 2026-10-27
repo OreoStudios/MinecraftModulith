@@ -1,5 +1,23 @@
 plugins {
     id("java-gradle-plugin")
+    id("maven-publish")
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "oreostudios"
+            url = uri("https://maven.oreostudios.fr/oreostudioslib")
+            credentials {
+                username = providers.gradleProperty("oreostudiosUsername")
+                    .orElse(providers.environmentVariable("MAVEN_USERNAME"))
+                    .orNull
+                password = providers.gradleProperty("oreostudiosPassword")
+                    .orElse(providers.environmentVariable("MAVEN_PASSWORD"))
+                    .orNull
+            }
+        }
+    }
 }
 
 gradlePlugin {
