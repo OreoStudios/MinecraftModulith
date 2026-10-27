@@ -615,6 +615,8 @@ All returned task handles are owned by the module's lifecycle and cancelled auto
 
 **Important:** Never use `region(context, player.getLocation(), ...)` as a substitute for `entity(context, player, ...)`: the player can move between regions. Capture locations on their owning context before scheduling region work. See the [Folia scheduling guide](docs/FOLIA-SCHEDULING.md) for **compiled examples** of block edits, player operations, global work and async-to-entity handoff, and [Paper's Folia ownership guidance](https://docs.papermc.io/paper/dev/folia-support/).
 
+**Module APIs and concurrency:** on Folia, other modules can call your published API from several region threads at once. On Paper, almost everything runs on one thread, so unsynchronized state (a `HashMap` cache, a counter) behind a service works there and only breaks on Folia. Make API implementations thread-safe. See [Make module APIs safe for concurrent callers](docs/FOLIA-SCHEDULING.md#5-make-module-apis-safe-for-concurrent-callers).
+
 ## Module-owned commands
 
 ### Legacy command registration
