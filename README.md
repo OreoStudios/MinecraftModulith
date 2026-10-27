@@ -229,6 +229,41 @@ package dev.example.homes;
 
 The class-based `@PluginModule` declaration continues to work and the two styles can coexist.
 
+### Layered modules: boundary in `package-info.java`, lifecycle in a sub-package
+
+A class-based `@PluginModule` owns only **its own package and sub-packages**. If you organize a module by layer and put the lifecycle class in `economy/lifecycle/`, the module boundary would be `economy.lifecycle` only, and `economy.api`, `economy.infra` and the other layers would not be checked at all.
+
+To keep a layered layout, declare the boundary at the module root and keep the lifecycle class where it is. Use the **same id** in both places:
+
+```text
+economy/
+├── package-info.java          @ApplicationModule(id = "economy")   ← module boundary
+├── api/EconomyService.java    @ModuleApi("payments")               ← visible to other modules
+├── domain/                                                         ← private to economy
+├── application/                                                    ← private to economy
+├── infra/InMemoryEconomyRepository.java                            ← private to economy
+└── lifecycle/EconomyModule.java  @PluginModule(value = "economy", configuration = true)
+```
+
+```java
+// homes/package-info.java: what the module may depend on
+@ApplicationModule(id = "homes", allowedDependencies = "economy::payments")
+package dev.example.homes;
+
+// homes/lifecycle/HomesModule.java: how the module starts
+@PluginModule(value = "homes", configuration = true)
+public final class HomesModule implements MinecraftModule { ... }
+```
+
+The processor and the runtime merge the two declarations into one module rooted at `dev.example.homes`:
+
+- every sub-package (`api`, `domain`, `application`, `infra`, `lifecycle`, …) belongs to the module, and layers of the same module may use each other freely
+- no extra lifecycle anchor is generated, so there is exactly one module registration
+- `@ModuleComponent` classes anywhere under the root are assigned to the module
+- `dependencies`/`allowedDependencies` and `after` may be declared on either annotation. If both declare them, the values must match, otherwise compilation fails. `configuration` and `optional` apply if either annotation enables them.
+
+A `@PluginModule` with the same id **outside** the `@ApplicationModule` package is reported as a duplicate module id.
+
 > **Note:** Run a clean build (`./gradlew clean build`) for complete named-API selector validation.
 > Incremental builds conservatively skip unknown-API errors when the target module was previously compiled.
 
@@ -347,15 +382,64 @@ The processor detects issues such as:
 - invalid dependency selectors
 - access to another module without a declared dependency
 - access to types that are not exposed through `@ModuleApi` or `@NamedInterface`
-- access to another module's `internal` package
+- access to another module's `internal` packages, at any depth
+- conflicting dependency declarations between a module's `@ApplicationModule` and `@PluginModule`
 - invalid or non-public module API declarations
 
-Example:
+### What a boundary violation looks like
+
+The example plugin's `homes` module shows the balance through the economy module's public API. Suppose someone takes a shortcut and uses economy's repository directly:
+
+```java
+// homes/lifecycle/HomesModule.java
+import dev.oreo.modulith.example.economy.infra.InMemoryEconomyRepository;   // ✗ economy's implementation
+...
+long balance = new InMemoryEconomyRepository().balance(player.getUniqueId());
+```
+
+On Paper this would run, and `homes` would now silently depend on how `economy` stores balances. Swap the repository for a database and `homes` breaks. With `modulith-processor`, the build fails instead (actual `./gradlew :example-plugin:compileJava` output):
 
 ```text
-Module 'homes' cannot access internal type
-dev.example.economy.internal.EconomyRepository
-from module 'economy'
+HomesModule.java:8: error: Cross-module reference to dev.oreo.modulith.example.economy.infra.InMemoryEconomyRepository is not allowed because it is not annotated with @ModuleApi
+import dev.oreo.modulith.example.economy.infra.InMemoryEconomyRepository;
+                                              ^
+HomesModule.java:42: error: Cross-module reference to dev.oreo.modulith.example.economy.infra.InMemoryEconomyRepository is not allowed because it is not annotated with @ModuleApi
+                    long balance = new InMemoryEconomyRepository().balance(player.getUniqueId());
+                                       ^
+```
+
+**The fix** is to go through the API that `economy` publishes:
+
+```diff
+-import dev.oreo.modulith.example.economy.infra.InMemoryEconomyRepository;
++import dev.oreo.modulith.example.economy.api.EconomyService;
+ ...
++this.economy = context.services().require(EconomyService.class);   // in enable()
+ ...
+-long balance = new InMemoryEconomyRepository().balance(player.getUniqueId());
++long balance = economy.balance(player.getUniqueId());
+```
+
+Using the API also requires declaring the dependency. Without it in `homes/package-info.java`, the processor rejects each use:
+
+```text
+HomesModule.java:7: error: Module 'homes' must declare dependency 'economy' or 'economy::payments' to access dev.oreo.modulith.example.economy.api.EconomyService
+import dev.oreo.modulith.example.economy.api.EconomyService;
+                                            ^
+```
+
+```diff
+-@ApplicationModule(id = "homes")
++@ApplicationModule(id = "homes", allowedDependencies = "economy::payments")
+ package dev.oreo.modulith.example.homes;
+```
+
+Now `homes` depends only on the `payments` contract, `economy` can change its storage freely, and the dependency shows up in the module graph and startup order.
+
+Referencing a type in another module's `internal` package (at any depth, such as `economy.infra.internal`) produces a more specific error (from the processor's regression tests):
+
+```text
+Module 'homes' cannot access internal type sample.economy.infra.internal.LedgerCache from module 'economy'
 ```
 
 ## Module events

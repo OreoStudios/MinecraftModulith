@@ -11,7 +11,7 @@ import dev.oreo.modulith.paper.PaperPlatform;
  * Small, independently migrated feature; the remaining plugin does not need
  * to change. Try /modbalance on the example server.
  */
-@PluginModule(value = "balance", dependencies = "economy::payments")
+@PluginModule("balance")
 public final class BalanceModule implements MinecraftModule {
     @Override
     public void enable(ModuleContext context) {

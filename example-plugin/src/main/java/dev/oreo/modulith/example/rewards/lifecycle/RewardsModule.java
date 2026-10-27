@@ -10,7 +10,7 @@ import dev.oreo.modulith.example.homes.api.HomeCreatedEvent;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-@PluginModule(value = "rewards", dependencies = "homes::events")
+@PluginModule("rewards")
 public final class RewardsModule implements MinecraftModule {
     @Override
     public void enable(ModuleContext context) {

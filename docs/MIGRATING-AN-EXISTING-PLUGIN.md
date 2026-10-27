@@ -65,7 +65,7 @@ public interface EconomyService {
 }
 ~~~
 
-This is the repository's real [`EconomyService`](../example-plugin/src/main/java/dev/oreo/modulith/example/economy/EconomyService.java). The existing [`EconomyModule`](../example-plugin/src/main/java/dev/oreo/modulith/example/economy/EconomyModule.java) implements it and publishes that contract when enabled:
+This is the repository's real [`EconomyService`](../example-plugin/src/main/java/dev/oreo/modulith/example/economy/api/EconomyService.java). The existing [`EconomyModule`](../example-plugin/src/main/java/dev/oreo/modulith/example/economy/lifecycle/EconomyModule.java) implements it and publishes that contract when enabled:
 
 ~~~java
 @PluginModule(value = "economy", configuration = true)
@@ -82,10 +82,19 @@ In a real migration, **do not silently create a second copy of your live economy
 
 ## Step 3: move just the balance command behind the contract
 
-Declare the feature's dependency on the named API rather than the entire economy module:
+Declare the feature's module boundary at its root package, with a dependency on the named API rather than the entire economy module:
 
 ~~~java
-@PluginModule(value = "balance", dependencies = "economy::payments")
+// migration/balance/package-info.java
+@ApplicationModule(id = "balance", allowedDependencies = "economy::payments")
+package dev.oreo.modulith.example.migration.balance;
+~~~
+
+The lifecycle class can live in a sub-package. Because it uses the same id, the whole `migration.balance` hierarchy (`lifecycle`, `internal`, …) is one module:
+
+~~~java
+// migration/balance/lifecycle/BalanceModule.java
+@PluginModule("balance")
 public final class BalanceModule implements MinecraftModule {
     @Override
     public void enable(ModuleContext context) {
@@ -97,7 +106,7 @@ public final class BalanceModule implements MinecraftModule {
 }
 ~~~
 
-The full [`BalanceModule`](../example-plugin/src/main/java/dev/oreo/modulith/example/migration/balance/BalanceModule.java) and [`BalanceCommand`](../example-plugin/src/main/java/dev/oreo/modulith/example/migration/balance/BalanceCommand.java) compile as part of `:example-plugin:compileJava`. `BalanceCommand` has a constructor parameter of type `EconomyService`; it never imports `EconomyModule`. Existing unrelated plugin commands and listeners can stay as they are.
+The full [`BalanceModule`](../example-plugin/src/main/java/dev/oreo/modulith/example/migration/balance/lifecycle/BalanceModule.java) and [`BalanceCommand`](../example-plugin/src/main/java/dev/oreo/modulith/example/migration/balance/internal/BalanceCommand.java) compile as part of `:example-plugin:compileJava`. `BalanceCommand` has a constructor parameter of type `EconomyService`; it never imports `EconomyModule`. Existing unrelated plugin commands and listeners can stay as they are.
 
 The example uses `/modbalance` instead of `/balance` to avoid conflict with an existing server command. In your own plugin, migrate the existing command registration instead of registering a duplicate.
 
@@ -105,7 +114,13 @@ The example uses `/modbalance` instead of `/balance` to avoid conflict with an e
 
 The dependency declaration `economy::payments` allows access to the annotated `EconomyService` API, **not** to arbitrary economy implementation classes.
 
-For example, add an import and direct call to `dev.oreo.modulith.example.economy.EconomyModule` from `BalanceCommand`. On a **clean** build with `modulith-processor` configured, the processor should reject this cross-module implementation dependency; the interface call is allowed.
+For example, add an import of `dev.oreo.modulith.example.economy.lifecycle.EconomyModule` to `BalanceCommand`. The processor rejects this cross-module implementation dependency, while the interface call is allowed:
+
+~~~text
+BalanceCommand.java: error: Cross-module reference to dev.oreo.modulith.example.economy.lifecycle.EconomyModule is not allowed because it is not annotated with @ModuleApi
+~~~
+
+See [What a boundary violation looks like](../README.md#what-a-boundary-violation-looks-like) for a full walkthrough with the fix.
 
 ~~~bash
 ./gradlew clean :example-plugin:compileJava

@@ -9,11 +9,7 @@ import dev.oreo.modulith.example.homes.api.HomeCreatedEvent;
 import dev.oreo.modulith.paper.PaperPlatform;
 import org.bukkit.entity.Player;
 
-@PluginModule(
-        value = "homes",
-        dependencies = "economy::payments",
-        configuration = true
-)
+@PluginModule(value = "homes", configuration = true)
 public final class HomesModule implements MinecraftModule {
     private EconomyService economy;
     private ModuleContext context;
