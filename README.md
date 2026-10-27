@@ -907,14 +907,17 @@ metadata file.
 ```kotlin
 // settings.gradle.kts
 pluginManagement {
-    repositories { maven("https://jitpack.io") }
+    repositories {
+        gradlePluginPortal()
+        maven("https://maven.oreostudios.fr/oreostudioslib")
+    }
 }
 ```
 
 ```kotlin
 // build.gradle.kts
 plugins {
-    id("dev.oreo.modulith") version "v0.5.1"
+    id("dev.oreo.minecraft-modulith") version "0.5.1"
 }
 ```
 
