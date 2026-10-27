@@ -135,6 +135,9 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                 continue;
             }
             String generated = packageName + ".__MinecraftModulithModule";
+            if (attachLifecycleClass(pkg, annotation, id, packageName, generated)) {
+                continue;
+            }
             ModuleInfo existing = modulesByPackage.get(packageName);
             if (existing != null) {
                 // The generated anchor causes a second annotation-processing round.
@@ -171,6 +174,83 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                 error(pkg, "Could not generate module anchor: " + ex.getMessage());
             }
         }
+    }
+
+    /**
+     * Joins a package-level boundary with a {@link PluginModule} lifecycle class of the same id
+     * declared in that package or one of its sub-packages (for example {@code economy.lifecycle}).
+     * The module then owns the whole package hierarchy and no anchor class is generated.
+     *
+     * @return {@code true} when the declaration was handled here
+     */
+    private boolean attachLifecycleClass(
+            PackageElement pkg,
+            ApplicationModule annotation,
+            String id,
+            String packageName,
+            String generated
+    ) {
+        ModuleInfo lifecycle = modulesById.get(id);
+        if (lifecycle != null && lifecycle.element() instanceof TypeElement type) {
+            if (!isWithin(lifecycle.packageName(), packageName)) {
+                return false; // reported as a duplicate id by the caller
+            }
+            PluginModule declared = type.getAnnotation(PluginModule.class);
+            List<String> dependencies = mergeDeclarations(pkg, id, "dependencies",
+                    declared.dependencies(), annotation.allowedDependencies());
+            mergeDeclarations(pkg, id, "after", declared.after(), annotation.after());
+            ModuleInfo merged = new ModuleInfo(id, packageName, lifecycle.className(), dependencies,
+                    declared.configuration() || annotation.configuration(), type);
+            modulesByPackage.remove(lifecycle.packageName());
+            modulesByPackage.put(packageName, merged);
+            modulesById.put(id, merged);
+            return true;
+        }
+
+        // Incremental build: the unchanged lifecycle class is not part of this compilation.
+        String previous = previousMetadata.get(id);
+        if (lifecycle == null && previous != null) {
+            String[] columns = previous.split("\\|", -1);
+            String className = columns[1];
+            int dot = className.lastIndexOf('.');
+            String classPackage = dot < 0 ? "" : className.substring(0, dot);
+            if (!className.equals(generated) && isWithin(classPackage, packageName)) {
+                List<String> dependencies = new ArrayList<>(List.of(annotation.allowedDependencies()));
+                if (!columns[2].isBlank()) {
+                    for (String dependency : columns[2].split(",")) {
+                        if (!dependencies.contains(dependency)) dependencies.add(dependency);
+                    }
+                }
+                ModuleInfo info = new ModuleInfo(id, packageName, className, dependencies,
+                        annotation.configuration() || Boolean.parseBoolean(columns[3]), pkg);
+                modulesById.put(id, info);
+                modulesByPackage.put(packageName, info);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<String> mergeDeclarations(
+            PackageElement pkg,
+            String id,
+            String attribute,
+            String[] fromClass,
+            String[] fromPackage
+    ) {
+        Set<String> classValues = new java.util.LinkedHashSet<>(List.of(fromClass));
+        Set<String> packageValues = new java.util.LinkedHashSet<>(List.of(fromPackage));
+        if (!classValues.isEmpty() && !packageValues.isEmpty() && !classValues.equals(packageValues)) {
+            error(pkg, "Module '" + id + "' declares different " + attribute + " on @ApplicationModule "
+                    + packageValues + " and @PluginModule " + classValues + "; declare them in one place");
+        }
+        Set<String> merged = new java.util.LinkedHashSet<>(classValues);
+        merged.addAll(packageValues);
+        return List.copyOf(merged);
+    }
+
+    private static boolean isWithin(String packageName, String root) {
+        return packageName.equals(root) || packageName.startsWith(root + ".");
     }
 
     private void validateApiDeclarations(RoundEnvironment roundEnv) {
@@ -330,8 +410,8 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             return;
         }
 
-        if (targetPackage.equals(targetModule.packageName() + ".internal")
-                || targetPackage.startsWith(targetModule.packageName() + ".internal.")) {
+        String relative = targetPackage.substring(targetModule.packageName().length());
+        if ((relative + ".").contains(".internal.")) {
             errorAt(path, "Module '" + sourceModule.id() + "' cannot access internal type "
                     + targetType.getQualifiedName() + " from module '" + targetModule.id() + "'");
             return;

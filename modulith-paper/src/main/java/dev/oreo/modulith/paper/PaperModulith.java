@@ -8,6 +8,7 @@ import dev.oreo.modulith.core.ModuleRuntime;
 import dev.oreo.modulith.core.ModulithException;
 import dev.oreo.modulith.core.PluginModule;
 import dev.oreo.modulith.core.ModuleComponent;
+import dev.oreo.modulith.core.ModuleBoundary;
 import dev.oreo.modulith.core.ModuleContributor;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ScanResult;
@@ -162,9 +163,12 @@ public final class PaperModulith implements AutoCloseable {
                     .acceptPackages(packageName).enableClassInfo().enableAnnotationInfo().scan()) {
                 for (Class<?> type : scan.getClassesWithAnnotation(ModuleComponent.class).loadClasses()) {
                     Class<? extends MinecraftModule> owner = modules.stream()
-                            .filter(module -> type.getPackageName().equals(module.getPackageName()) ||
-                                    type.getPackageName().startsWith(module.getPackageName() + "."))
-                            .max(java.util.Comparator.comparingInt(m -> m.getPackageName().length()))
+                            .filter(module -> {
+                                String root = ModuleBoundary.rootPackage(module);
+                                return type.getPackageName().equals(root) ||
+                                        type.getPackageName().startsWith(root + ".");
+                            })
+                            .max(java.util.Comparator.comparingInt(m -> ModuleBoundary.rootPackage(m).length()))
                             .orElseThrow(() -> new ModulithException(
                                     "No module owns component " + type.getName()));
                     result.computeIfAbsent(owner.getAnnotation(PluginModule.class).value(),

@@ -398,14 +398,7 @@ public final class ModuleRuntime implements AutoCloseable {
             if (annotation == null) {
                 throw new ModulithException("Module class is missing @PluginModule: " + type.getName());
             }
-            return new ModuleDescriptor(
-                    annotation.value(),
-                    List.of(annotation.dependencies()),
-                    type,
-                    annotation.configuration(),
-                    annotation.optional(),
-                    List.of(annotation.after())
-            );
+            return ModuleBoundary.describe(type, annotation);
         }
     }
 
