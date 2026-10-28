@@ -23,6 +23,14 @@ public @interface PluginModule {
      * but gains no API access and still starts if one of them failed, was skipped or is absent.
      */
     String[] after() default {};
+    /**
+     * APIs this module calls at runtime without needing their module started first, such as a
+     * menu that opens another feature's screen. Selectors use the same syntax as
+     * {@link #dependencies()} and grant the same compile-time access, but impose no start order
+     * and no failure propagation: look the service up when needed and handle it being absent.
+     * Use this to break dependency cycles between modules that only collaborate after startup.
+     */
+    String[] uses() default {};
 
     /** Enables module-specific configuration when a provider is installed. */
     boolean configuration() default false;

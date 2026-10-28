@@ -139,7 +139,8 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                     type.getQualifiedName().toString(),
                     List.of(annotation.dependencies()),
                     annotation.configuration(),
-                    type
+                    type,
+                    List.of(annotation.uses())
             );
 
             ModuleInfo previous = modulesById.putIfAbsent(id, info);
@@ -175,7 +176,7 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                 continue;
             }
             ModuleInfo info = new ModuleInfo(id, packageName, generated,
-                    List.of(annotation.allowedDependencies()), annotation.configuration(), pkg);
+                    List.of(annotation.allowedDependencies()), annotation.configuration(), pkg, List.of());
             ModuleInfo previous = modulesById.putIfAbsent(id, info);
             if (previous != null && !previous.className().equals(generated)) {
                 error(pkg, "Duplicate MinecraftModulith module id '" + id + "'");
@@ -229,7 +230,7 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                     declared.dependencies(), annotation.allowedDependencies());
             mergeDeclarations(pkg, id, "after", declared.after(), annotation.after());
             ModuleInfo merged = new ModuleInfo(id, packageName, lifecycle.className(), dependencies,
-                    declared.configuration() || annotation.configuration(), type);
+                    declared.configuration() || annotation.configuration(), type, List.of(declared.uses()));
             modulesByPackage.remove(lifecycle.packageName());
             modulesByPackage.put(packageName, merged);
             modulesById.put(id, merged);
@@ -250,8 +251,9 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                         if (!dependencies.contains(dependency)) dependencies.add(dependency);
                     }
                 }
+                List<String> uses = columns.length > 4 && !columns[4].isBlank() ? List.of(columns[4].split(",")) : List.of();
                 ModuleInfo info = new ModuleInfo(id, packageName, className, dependencies,
-                        annotation.configuration() || Boolean.parseBoolean(columns[3]), pkg);
+                        annotation.configuration() || Boolean.parseBoolean(columns[3]), pkg, uses);
                 modulesById.put(id, info);
                 modulesByPackage.put(packageName, info);
                 return true;
@@ -327,7 +329,7 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
 
     private void validateDeclaredDependencies() {
         for (ModuleInfo module : modulesById.values()) {
-            for (String raw : module.dependencies()) {
+            for (String raw : module.accessible()) {
                 String targetId = raw;
                 int delimiter = raw.indexOf("::");
                 if (delimiter >= 0) {
@@ -490,7 +492,7 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
         }
 
         String apiName = api != null ? api.value().trim() : named.value().trim();
-        boolean allowed = sourceModule.dependencies().stream().anyMatch(raw -> {
+        boolean allowed = sourceModule.accessible().stream().anyMatch(raw -> {
             if (raw.equals(targetModule.id())) {
                 return true;
             }
@@ -519,7 +521,7 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     String[] columns = line.split("\\|", -1);
-                    if (columns.length == 4 && !columns[0].isBlank()) {
+                    if (columns.length >= 4 && !columns[0].isBlank()) {
                         previousMetadata.putIfAbsent(columns[0], line);
                     }
                 }
@@ -549,6 +551,8 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                     writer.write(String.join(",", info.dependencies()));
                     writer.write("|");
                     writer.write(Boolean.toString(info.configuration()));
+                    writer.write("|");
+                    writer.write(String.join(",", info.uses()));
                     writer.write(System.lineSeparator());
                 }
                 for (var entry : previousMetadata.entrySet()) {
@@ -600,7 +604,14 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             String className,
             List<String> dependencies,
             boolean configuration,
-            Element element
+            Element element,
+            List<String> uses
     ) {
+        /** Selectors that grant API access: lifecycle dependencies plus runtime-only uses. */
+        List<String> accessible() {
+            List<String> all = new ArrayList<>(dependencies);
+            all.addAll(uses);
+            return all;
+        }
     }
 }

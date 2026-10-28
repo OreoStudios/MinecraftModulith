@@ -43,6 +43,18 @@ class ModuleBoundaryTest {
         assertEquals(List.of("other"), ModuleRuntime.Builder.describe(Plain.class).dependencies());
     }
 
+    @Test
+    void usesDoesNotBecomeALifecycleDependency() {
+        assertEquals(List.of("other"), ModuleRuntime.Builder.describe(Collaborator.class).dependencies());
+    }
+
+    @PluginModule(value = "collaborator", dependencies = "other", uses = "menus::screens")
+    static final class Collaborator implements MinecraftModule {
+        @Override
+        public void enable(ModuleContext context) {
+        }
+    }
+
     @PluginModule(value = "plain", dependencies = "other")
     static final class Plain implements MinecraftModule {
         @Override

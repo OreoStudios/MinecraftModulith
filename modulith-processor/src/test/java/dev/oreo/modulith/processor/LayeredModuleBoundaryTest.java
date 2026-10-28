@@ -42,6 +42,50 @@ class LayeredModuleBoundaryTest {
         assertEquals(2, index.lines().count(), index);
     }
 
+    @Test
+    void usesGrantsApiAccessWithoutALifecycleDependency() throws Exception {
+        Result result = compile(economy(), rewards("uses = \"economy::payments\""));
+        assertTrue(result.success(), result.diagnostics());
+        String index = Files.readString(result.output().resolve("META-INF/minecraft-modulith/modules.idx"));
+        assertTrue(index.contains("rewards|sample.rewards.lifecycle.RewardsModule||false|economy::payments"), index);
+    }
+
+    @Test
+    void apiAccessWithoutDependencyOrUsesIsRejected() throws Exception {
+        Result result = compile(economy(), rewards(""));
+        assertFalse(result.success());
+        assertTrue(result.diagnostics().contains("Module 'rewards' must declare dependency 'economy' or 'economy::payments'"),
+                result.diagnostics());
+    }
+
+    @Test
+    void usesOfAnUnknownModuleIsRejected() throws Exception {
+        Result result = compile(economy(), rewards("uses = \"bank::payments\""));
+        assertFalse(result.success());
+        assertTrue(result.diagnostics().contains("bank"), result.diagnostics());
+    }
+
+    private Map<String, String> rewards(String attributes) {
+        Map<String, String> sources = new LinkedHashMap<>();
+        sources.put("sample/rewards/package-info.java", """
+                @dev.oreo.modulith.core.ApplicationModule(id = "rewards")
+                package sample.rewards;
+                """);
+        sources.put("sample/rewards/lifecycle/RewardsModule.java", """
+                package sample.rewards.lifecycle;
+                @dev.oreo.modulith.core.PluginModule(value = "rewards"%s)
+                public final class RewardsModule implements dev.oreo.modulith.core.MinecraftModule {}
+                """.formatted(attributes.isEmpty() ? "" : ", " + attributes));
+        sources.put("sample/rewards/application/RewardMenu.java", """
+                package sample.rewards.application;
+                import sample.economy.api.EconomyService;
+                public final class RewardMenu {
+                    long show(EconomyService economy) { return economy.balance(); }
+                }
+                """);
+        return sources;
+    }
+
     /** Lambdas over captured wildcards must not produce false "cannot find symbol" errors. */
     @Test
     void lambdaOverWildcardCollectionCompilesInAProtectedModule() throws Exception {
