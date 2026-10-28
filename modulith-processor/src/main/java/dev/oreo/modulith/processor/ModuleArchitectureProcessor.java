@@ -1,8 +1,12 @@
 package dev.oreo.modulith.processor;
 
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.MemberSelectTree;
+import com.sun.source.util.JavacTask;
+import com.sun.source.util.TaskEvent;
+import com.sun.source.util.TaskListener;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import com.sun.source.util.Trees;
@@ -63,6 +67,9 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
     /** Previous index allows incremental compilation when a dependency's package-info is unchanged. */
     private final Map<String, String> previousMetadata = new LinkedHashMap<>();
     private boolean metadataWritten;
+    /** Top-level types still to check once javac has analysed them. */
+    private final Set<String> pendingTypes = new HashSet<>();
+    private boolean checkAfterAnalysis;
 
     @Override
     public synchronized void init(javax.annotation.processing.ProcessingEnvironment processingEnv) {
@@ -70,6 +77,22 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
         trees = Trees.instance(processingEnv);
         readPreviousMetadata(StandardLocation.CLASS_OUTPUT);
         readPreviousMetadata(StandardLocation.CLASS_PATH);
+        // Resolving references in method bodies during annotation processing forces javac to
+        // attribute them early, which reports spurious errors (e.g. lambdas whose parameter type
+        // is a captured wildcard). With javac, check each class once it has been analysed instead.
+        try {
+            JavacTask.instance(processingEnv).addTaskListener(new TaskListener() {
+                @Override
+                public void finished(TaskEvent event) {
+                    if (event.getKind() == TaskEvent.Kind.ANALYZE && event.getTypeElement() != null) {
+                        checkAnalyzed(event.getTypeElement(), event.getCompilationUnit());
+                    }
+                }
+            });
+            checkAfterAnalysis = true;
+        } catch (IllegalArgumentException | LinkageError notJavac) {
+            checkAfterAnalysis = false;
+        }
     }
 
     @Override
@@ -79,7 +102,13 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
         validateApiDeclarations(roundEnv);
 
         if (!roundEnv.processingOver()) {
-            scanRootElements(roundEnv);
+            if (checkAfterAnalysis) {
+                for (Element root : roundEnv.getRootElements()) {
+                    if (root instanceof TypeElement type) pendingTypes.add(type.getQualifiedName().toString());
+                }
+            } else {
+                scanRootElements(roundEnv);
+            }
         } else if (!metadataWritten) {
             validateDeclaredDependencies();
             writeMetadata();
@@ -360,6 +389,39 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             }
 
             new BoundaryScanner(sourceModule, owners).scan(unit, null);
+        }
+    }
+
+    private List<ModuleInfo> owners() {
+        return modulesByPackage.values().stream()
+                .sorted(Comparator.comparingInt((ModuleInfo info) -> info.packageName().length()).reversed())
+                .toList();
+    }
+
+    /** Checks one analysed top-level type, plus its file's imports the first time the file is seen. */
+    private void checkAnalyzed(TypeElement type, CompilationUnitTree unit) {
+        if (!pendingTypes.remove(type.getQualifiedName().toString())) {
+            return;
+        }
+        List<ModuleInfo> owners = owners();
+        String sourcePackage = processingEnv.getElementUtils().getPackageOf(type).getQualifiedName().toString();
+        ModuleInfo sourceModule = ownerOf(sourcePackage, owners);
+        if (sourceModule == null) {
+            return;
+        }
+        BoundaryScanner scanner = new BoundaryScanner(sourceModule, owners);
+        if (unit != null) {
+            String unitKey = unit.getSourceFile() == null ? type.getQualifiedName().toString() : unit.getSourceFile().toUri().toString();
+            if (scannedUnits.add(unitKey)) {
+                TreePath unitPath = new TreePath(unit);
+                for (ImportTree importTree : unit.getImports()) {
+                    scanner.scan(new TreePath(unitPath, importTree), null);
+                }
+            }
+        }
+        TreePath path = trees.getPath(type);
+        if (path != null) {
+            scanner.scan(path, null);
         }
     }
 

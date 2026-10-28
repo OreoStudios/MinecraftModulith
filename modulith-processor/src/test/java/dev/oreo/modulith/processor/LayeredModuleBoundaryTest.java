@@ -42,6 +42,27 @@ class LayeredModuleBoundaryTest {
         assertEquals(2, index.lines().count(), index);
     }
 
+    /** Lambdas over captured wildcards must not produce false "cannot find symbol" errors. */
+    @Test
+    void lambdaOverWildcardCollectionCompilesInAProtectedModule() throws Exception {
+        Result result = compile(economy(), homes(consumer(
+                "int count(java.util.Collection<? extends CharSequence> names) {"
+                        + " int[] total = {0}; names.forEach(n -> total[0] += n.length());"
+                        + " names.stream().filter(n -> n.length() > 1).forEach(n -> total[0]++); return total[0]; }",
+                "")));
+        assertTrue(result.success(), result.diagnostics());
+    }
+
+    @Test
+    void internalReferenceInsideALambdaIsStillRejected() throws Exception {
+        Result result = compile(economy(), homes(consumer(
+                "Runnable leak() { return () -> new LedgerCache(); }",
+                "import sample.economy.infra.internal.LedgerCache;")));
+        assertFalse(result.success());
+        assertTrue(result.diagnostics().contains("cannot access internal type sample.economy.infra.internal.LedgerCache"),
+                result.diagnostics());
+    }
+
     @Test
     void infrastructureClassOfAnotherModuleIsRejected() throws Exception {
         Result result = compile(economy(), homes(consumer(
