@@ -10,6 +10,7 @@ import dev.oreo.modulith.core.PluginModule;
 import dev.oreo.modulith.core.ModuleComponent;
 import dev.oreo.modulith.core.ModuleBoundary;
 import dev.oreo.modulith.core.ModuleContributor;
+import dev.oreo.modulith.core.ModuleFunctor;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ScanResult;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.ServiceLoader;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 
@@ -51,6 +53,7 @@ public final class PaperModulith implements AutoCloseable {
         private final JavaPlugin plugin;
         private final Set<Class<? extends MinecraftModule>> explicitModules = new LinkedHashSet<>();
         private final Map<String, List<Class<?>>> explicitComponents = new LinkedHashMap<>();
+        private final Map<Class<? extends MinecraftModule>, Consumer<ModuleRuntime.Builder>> functors = new LinkedHashMap<>();
         private String basePackage;
         private boolean discoverContributors;
         private boolean diagnosticsCommand;
@@ -87,6 +90,23 @@ public final class PaperModulith implements AutoCloseable {
 
         public Builder module(Class<? extends MinecraftModule> moduleType) {
             explicitModules.add(Objects.requireNonNull(moduleType, "moduleType"));
+            return this;
+        }
+
+        /**
+         * Binds a typed functor to an explicit or discovered module class.
+         * The functor replaces no-argument module construction at startup.
+         */
+        public <P, M extends MinecraftModule> Builder functor(
+                Class<M> moduleType, P parameters, ModuleFunctor<? super P, ? extends M> functor) {
+            Objects.requireNonNull(moduleType, "moduleType");
+            Objects.requireNonNull(parameters, "parameters");
+            Objects.requireNonNull(functor, "functor");
+            if (functors.containsKey(moduleType)) {
+                throw new ModulithException("Functor already bound for " + moduleType.getName());
+            }
+            explicitModules.add(moduleType);
+            functors.put(moduleType, runtime -> runtime.functor(moduleType, parameters, functor));
             return this;
         }
 
@@ -141,6 +161,7 @@ public final class PaperModulith implements AutoCloseable {
                     .eventExecutor(eventExecutor)
                     .configurationProvider(configs)
                     .logger(plugin.getLogger());
+            functors.values().forEach(binding -> binding.accept(runtimeBuilder));
             explicitComponents.forEach((id, types) -> types.forEach(type -> runtimeBuilder.component(id, type)));
             if (basePackage != null && !basePackage.isBlank()) {
                 discoverComponents(basePackage, modules).forEach((id, types) ->

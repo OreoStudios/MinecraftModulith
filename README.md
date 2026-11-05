@@ -52,6 +52,29 @@ public final class HomesModule implements MinecraftModule {
 
 That means fewer accidental dependencies, safer refactors, clearer startup order, and architecture problems caught before they become runtime bugs.
 
+## Typed module functors (OCaml-inspired)
+
+Each annotated module can be parameterized through a typed factory. A parameter
+may be a record with multiple fields, a public API implementation, or a domain
+strategy. The factory receives a `ModuleContext` after dependencies are running.
+
+```java
+record ShopOptions(int taxPercent, String currency) {}
+
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .module(EconomyModule.class)
+    .functor(ShopModule.class, new ShopOptions(5, "coins"),
+        (opts, context) -> new ShopModule(
+            context.services().require(EconomyService.class), opts))
+    .start();
+```
+
+The module must still declare `@PluginModule` and its dependency selectors.
+Works with `PaperModulith.builder(plugin)` as well. One typed application per
+annotated module type is supported in each runtime; multiple independent copies
+of one template with generative identities are not supported yet.
+See [Functor guide](docs/FUNCTORS.md).
+
 ## Installation
 
 MinecraftModulith is published to two repositories — use whichever suits your project.

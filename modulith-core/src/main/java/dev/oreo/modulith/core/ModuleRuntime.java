@@ -22,6 +22,7 @@ public final class ModuleRuntime implements AutoCloseable {
     private final List<ModuleDescriptor> startupOrder;
     private final Map<String, List<Class<?>>> componentTypes;
     private final Map<Class<?>, Object> platformServices;
+    private final Map<Class<? extends MinecraftModule>, ModuleFactory> moduleFactories;
     private final Logger logger;
     private final EventPublicationRegistry publicationRegistry;
     private final ModuleConfigurationProvider configurationProvider;
@@ -36,6 +37,7 @@ public final class ModuleRuntime implements AutoCloseable {
     private ModuleRuntime(
             List<ModuleDescriptor> startupOrder,
             Map<Class<?>, Object> platformServices,
+            Map<Class<? extends MinecraftModule>, ModuleFactory> moduleFactories,
             Logger logger,
             Executor eventExecutor,
             EventPublicationRegistry publicationRegistry,
@@ -47,6 +49,7 @@ public final class ModuleRuntime implements AutoCloseable {
         this.startupOrder = startupOrder;
         this.componentTypes = componentTypes;
         this.platformServices = Map.copyOf(platformServices);
+        this.moduleFactories = Map.copyOf(moduleFactories);
         this.logger = logger;
         this.publicationRegistry = publicationRegistry;
         this.configurationProvider = configurationProvider;
@@ -126,7 +129,6 @@ public final class ModuleRuntime implements AutoCloseable {
         LifecycleScope lifecycle = new LifecycleScope();
         long startedAt = System.nanoTime();
         try {
-            MinecraftModule instance = instantiate(descriptor);
             ModuleServices moduleServices = new ModuleServices(
                     descriptor.id(),
                     descriptor.parsedDependencies(),
@@ -150,6 +152,7 @@ public final class ModuleRuntime implements AutoCloseable {
                     context, componentTypes.getOrDefault(descriptor.id(), List.of()));
             context.setComponents(components);
             components.initialize();
+            MinecraftModule instance = instantiate(descriptor, context);
             instance.enable(context);
             running.put(descriptor.id(), new RunningModule(descriptor, instance, lifecycle, configuration));
             states.put(descriptor.id(), ModuleState.RUNNING);
@@ -169,7 +172,17 @@ public final class ModuleRuntime implements AutoCloseable {
         }
     }
 
-    private static MinecraftModule instantiate(ModuleDescriptor descriptor) {
+    private MinecraftModule instantiate(ModuleDescriptor descriptor, ModuleContext context) throws Exception {
+        ModuleFactory factory = moduleFactories.get(descriptor.implementation());
+        if (factory != null) {
+            MinecraftModule instance = Objects.requireNonNull(factory.create(context),
+                    "Functor for module '" + descriptor.id() + "' returned null");
+            if (!descriptor.implementation().isInstance(instance)) {
+                throw new ModulithException("Functor for module '" + descriptor.id()
+                        + "' returned an incompatible module type");
+            }
+            return instance;
+        }
         try {
             Constructor<? extends MinecraftModule> constructor = descriptor.implementation().getDeclaredConstructor();
             constructor.setAccessible(true);
@@ -307,7 +320,13 @@ public final class ModuleRuntime implements AutoCloseable {
         stop();
     }
 
+    @FunctionalInterface
+    private interface ModuleFactory {
+        MinecraftModule create(ModuleContext context) throws Exception;
+    }
+
     public static final class Builder {
+        private final Map<Class<? extends MinecraftModule>, ModuleFactory> moduleFactories = new LinkedHashMap<>();
         private final Set<Class<? extends MinecraftModule>> moduleTypes = new LinkedHashSet<>();
         private final Map<String, List<Class<?>>> components = new LinkedHashMap<>();
         private final Map<Class<?>, Object> platformServices = new LinkedHashMap<>();
@@ -320,6 +339,25 @@ public final class ModuleRuntime implements AutoCloseable {
 
         public Builder module(Class<? extends MinecraftModule> moduleType) {
             moduleTypes.add(Objects.requireNonNull(moduleType, "moduleType"));
+            return this;
+        }
+
+        /**
+         * Applies a typed module functor to an annotated module. Factory invocation happens
+         * during startup after the required dependencies have started. The supplied
+         * parameter may be a Java record containing multiple typed arguments.
+         * Only one functor binding is permitted per annotated module type per runtime.
+         */
+        public <P, M extends MinecraftModule> Builder functor(
+                Class<M> moduleType, P parameters, ModuleFunctor<? super P, ? extends M> functor) {
+            Objects.requireNonNull(moduleType, "moduleType");
+            Objects.requireNonNull(parameters, "parameters");
+            Objects.requireNonNull(functor, "functor");
+            if (moduleFactories.containsKey(moduleType)) {
+                throw new ModulithException("Functor already bound for " + moduleType.getName());
+            }
+            moduleTypes.add(moduleType);
+            moduleFactories.put(moduleType, context -> functor.apply(parameters, context));
             return this;
         }
 
@@ -379,6 +417,7 @@ public final class ModuleRuntime implements AutoCloseable {
             return new ModuleRuntime(
                     ModuleGraph.validateAndSort(descriptors),
                     platformServices,
+                    moduleFactories,
                     logger,
                     eventExecutor,
                     publicationRegistry,
