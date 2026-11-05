@@ -2,6 +2,7 @@ package dev.oreo.modulith.core;
 
 import org.junit.jupiter.api.Test;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.*;
@@ -52,6 +53,39 @@ class EventContractTest {
         bus.subscribe(Alpha.class, "second", EventDelivery.SYNC, a -> invocations.incrementAndGet());
         assertThrows(EventDispatchException.class, () -> bus.publish(new Alpha("event")));
         assertEquals(1, invocations.get());
+    }
+
+    @Test
+    void stagedDeliveryCompletesOnlyAfterTheActualHandler() {
+        Memory registry = new Memory();
+        EventBus bus = new EventBus(Runnable::run, registry,
+                EventPayloadSerializer.toStringSerializer(), new ModulithMetrics());
+        CompletableFuture<Void> pending = new CompletableFuture<>();
+        bus.subscribeStage(Alpha.class, "staged", EventDelivery.SYNC, event -> pending);
+        CompletableFuture<EventDispatchResult> result =
+                bus.publishAsync(new Alpha("message")).toCompletableFuture();
+        assertFalse(result.isDone());
+        assertEquals(EventPublicationStatus.PENDING,
+                registry.all.values().iterator().next().status());
+        pending.complete(null);
+        assertTrue(result.join().successful());
+        assertEquals(EventPublicationStatus.COMPLETED,
+                registry.all.values().iterator().next().status());
+    }
+
+    @Test
+    void stagedDeliveryFailureIsRecordedForRetries() {
+        Memory registry = new Memory();
+        EventBus bus = new EventBus(Runnable::run, registry,
+                EventPayloadSerializer.toStringSerializer(), new ModulithMetrics());
+        CompletableFuture<Void> pending = new CompletableFuture<>();
+        bus.subscribeStage(Alpha.class, "staged-failure", EventDelivery.SYNC, event -> pending);
+        CompletableFuture<EventDispatchResult> result =
+                bus.publishAsync(new Alpha("message")).toCompletableFuture();
+        pending.completeExceptionally(new IllegalStateException("failed"));
+        assertThrows(EventDispatchException.class, result::join);
+        assertEquals(EventPublicationStatus.FAILED,
+                registry.all.values().iterator().next().status());
     }
 
     static class Memory implements EventPublicationRegistry {

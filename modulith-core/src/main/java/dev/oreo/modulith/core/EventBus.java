@@ -15,6 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Application event bus supporting synchronous/asynchronous listeners, completion policies,
@@ -68,6 +69,21 @@ public final class EventBus {
                     return CompletableFuture.completedFuture(null);
                 }
         );
+        addHandler(eventType, handler);
+        return () -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler);
+    }
+
+    /** A staged subscription completes its publication when the returned stage completes. */
+    public <E> Subscription subscribeStage(
+            Class<E> eventType, String listenerId, EventDelivery delivery,
+            Function<? super E, ? extends CompletionStage<Void>> listener) {
+        Objects.requireNonNull(eventType, "eventType");
+        Objects.requireNonNull(listenerId, "listenerId");
+        Objects.requireNonNull(delivery, "delivery");
+        Objects.requireNonNull(listener, "listener");
+        Handler handler = new Handler(listenerId, delivery,
+                event -> Objects.requireNonNull(listener.apply(eventType.cast(event)),
+                        "stage listener returned null"));
         addHandler(eventType, handler);
         return () -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler);
     }
@@ -246,16 +262,15 @@ public final class EventBus {
         long startedAt = System.nanoTime();
 
         CompletableFuture<Void> future;
-        if (handler.delivery() == EventDelivery.ASYNC) {
-            future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
-                    .thenCompose(stage -> stage)
-                    .toCompletableFuture();
-        } else {
-            try {
+        try {
+            if (handler.delivery() == EventDelivery.ASYNC) {
+                future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
+                        .thenCompose(stage -> stage).toCompletableFuture();
+            } else {
                 future = handler.invocation().invoke(event).toCompletableFuture();
-            } catch (RuntimeException exception) {
-                future = CompletableFuture.failedFuture(exception);
             }
+        } catch (RuntimeException exception) {
+            future = CompletableFuture.failedFuture(exception);
         }
 
         UUID publicationId = publication.id();
@@ -352,12 +367,15 @@ public final class EventBus {
 
     private CompletionStage<Void> invokeExisting(Handler handler, Object event, UUID publicationId) {
         CompletableFuture<Void> future;
-        if (handler.delivery() == EventDelivery.ASYNC) {
-            future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
-                    .thenCompose(stage -> stage).toCompletableFuture();
-        } else {
-            try { future = handler.invocation().invoke(event).toCompletableFuture(); }
-            catch (RuntimeException exception) { future = CompletableFuture.failedFuture(exception); }
+        try {
+            if (handler.delivery() == EventDelivery.ASYNC) {
+                future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
+                        .thenCompose(stage -> stage).toCompletableFuture();
+            } else {
+                future = handler.invocation().invoke(event).toCompletableFuture();
+            }
+        } catch (RuntimeException exception) {
+            future = CompletableFuture.failedFuture(exception);
         }
         return future.whenComplete((ignored, error) -> {
             if (error == null) registry.complete(publicationId);
