@@ -60,7 +60,8 @@ public final class ModuleBoundary {
                     type,
                     annotation.configuration(),
                     annotation.optional(),
-                    List.of(annotation.after())
+                    List.of(annotation.after()),
+                    List.of(annotation.uses())
             );
         }
         ApplicationModule declared = boundary.get().annotation();
@@ -70,7 +71,8 @@ public final class ModuleBoundary {
                 type,
                 annotation.configuration() || declared.configuration(),
                 annotation.optional() || declared.optional(),
-                merge(annotation.after(), declared.after())
+                merge(annotation.after(), declared.after()),
+                merge(annotation.uses(), declared.uses())
         );
     }
 

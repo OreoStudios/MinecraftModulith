@@ -67,6 +67,8 @@ public final class ModuleRuntime implements AutoCloseable {
             return this;
         }
 
+        failures.clear();
+        startupOrder.forEach(descriptor -> states.put(descriptor.id(), ModuleState.DISCOVERED));
         logger.info(() -> "[MinecraftModulith] Starting " + startupOrder.size() + " modules: "
                 + startupOrder.stream().map(ModuleDescriptor::id).toList());
 
@@ -91,7 +93,11 @@ public final class ModuleRuntime implements AutoCloseable {
             started = true;
             return this;
         } catch (RuntimeException exception) {
-            stopStartedModules();
+            try {
+                stopStartedModules();
+            } catch (RuntimeException cleanupFailure) {
+                exception.addSuppressed(cleanupFailure);
+            }
             throw exception;
         }
     }
@@ -131,7 +137,7 @@ public final class ModuleRuntime implements AutoCloseable {
         try {
             ModuleServices moduleServices = new ModuleServices(
                     descriptor.id(),
-                    descriptor.parsedDependencies(),
+                    descriptor.apiAccess(),
                     services
             );
             ModuleConfiguration configuration = descriptor.configurationEnabled()
@@ -201,8 +207,11 @@ public final class ModuleRuntime implements AutoCloseable {
         if (!started && running.isEmpty()) {
             return;
         }
-        stopStartedModules();
-        started = false;
+        try {
+            stopStartedModules();
+        } finally {
+            started = false;
+        }
     }
 
     private void stopStartedModules() {

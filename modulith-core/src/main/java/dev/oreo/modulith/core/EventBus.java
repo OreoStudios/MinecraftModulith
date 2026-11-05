@@ -68,7 +68,7 @@ public final class EventBus {
                     return CompletableFuture.completedFuture(null);
                 }
         );
-        handlers.computeIfAbsent(eventType, ignored -> new CopyOnWriteArrayList<>()).add(handler);
+        addHandler(eventType, handler);
         return () -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler);
     }
 
@@ -96,11 +96,29 @@ public final class EventBus {
                     annotation.delivery(),
                     event -> invoke(listener, method, event)
             );
-            handlers.computeIfAbsent(eventType, ignored -> new CopyOnWriteArrayList<>()).add(handler);
-            subscriptions.add(() -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler));
+            try {
+                addHandler(eventType, handler);
+                subscriptions.add(() -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler));
+            } catch (RuntimeException exception) {
+                subscriptions.forEach(Subscription::close);
+                throw exception;
+            }
         }
 
         return List.copyOf(subscriptions);
+    }
+
+    /** Listener IDs must be unique for each registered event type. */
+    private void addHandler(Class<?> eventType, Handler handler) {
+        CopyOnWriteArrayList<Handler> listeners =
+                handlers.computeIfAbsent(eventType, ignored -> new CopyOnWriteArrayList<>());
+        synchronized (listeners) {
+            if (listeners.stream().anyMatch(existing -> existing.id().equals(handler.id()))) {
+                throw new ModulithException("Duplicate event listener ID '" + handler.id()
+                        + "' for " + eventType.getName());
+            }
+            listeners.add(handler);
+        }
     }
 
     public EventDispatchResult publish(Object event) {
@@ -203,8 +221,15 @@ public final class EventBus {
     }
 
     private CompletableFuture<Void> dispatch(Handler handler, Object event) {
-        String payload = serializer.serialize(event);
-        EventPublication publication = registry.begin(event.getClass().getName(), handler.id(), payload);
+        final EventPublication publication;
+        try {
+            String payload = serializer.serialize(event);
+            publication = registry.begin(event.getClass().getName(), handler.id(), payload);
+        } catch (RuntimeException failure) {
+            metrics.listenerFailed(0);
+            // A persistence failure must not suppress delivery attempts to other listeners.
+            return CompletableFuture.failedFuture(failure);
+        }
         metrics.listenerInvoked();
         long startedAt = System.nanoTime();
 
@@ -285,6 +310,15 @@ public final class EventBus {
         for (int i = 0; i < Math.min(limit, publications.size()); i++) {
             EventPublication publication = publications.get(i);
             var target = handlers.entrySet().stream()
+                    .filter(entry -> {
+                        try {
+                            Class<?> published = Class.forName(publication.eventType(), false,
+                                    entry.getKey().getClassLoader());
+                            return entry.getKey().isAssignableFrom(published);
+                        } catch (ClassNotFoundException | LinkageError ignored) {
+                            return false;
+                        }
+                    })
                     .filter(entry -> entry.getValue().stream()
                             .anyMatch(handler -> handler.id().equals(publication.listenerId())))
                     .findFirst().orElse(null);

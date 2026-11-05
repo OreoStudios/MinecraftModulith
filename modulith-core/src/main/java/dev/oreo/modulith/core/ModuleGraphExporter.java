@@ -27,6 +27,12 @@ public final class ModuleGraphExporter {
                 }
                 out.append(" ").append(node(dependency.moduleId())).append("\n");
             }
+            for (String raw : module.uses()) {
+                ModuleDependency dependency = ModuleDependency.parse(raw);
+                out.append("  ").append(node(module.id())).append(" -.->|uses");
+                if (dependency.apiName() != null) out.append("::").append(escape(dependency.apiName()));
+                out.append("| ").append(node(dependency.moduleId())).append("\n");
+            }
             for (String after : module.after()) {
                 out.append("  ").append(node(module.id())).append(" -.-> ").append(node(after)).append("\n");
             }
@@ -52,6 +58,13 @@ public final class ModuleGraphExporter {
                     out.append(" [label=\"").append(escape(dependency.apiName())).append("\"]");
                 }
                 out.append(";\n");
+            }
+            for (String raw : module.uses()) {
+                ModuleDependency dependency = ModuleDependency.parse(raw);
+                out.append("  \"").append(escape(module.id())).append("\" -> \"")
+                        .append(escape(dependency.moduleId())).append("\" [style=dotted, label=\"uses");
+                if (dependency.apiName() != null) out.append("::").append(escape(dependency.apiName()));
+                out.append("\"];\n");
             }
             for (String after : module.after()) {
                 out.append("  \"").append(escape(module.id())).append("\" -> \"")
