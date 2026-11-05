@@ -83,7 +83,9 @@ class EventContractTest {
         CompletableFuture<EventDispatchResult> result =
                 bus.publishAsync(new Alpha("message")).toCompletableFuture();
         pending.completeExceptionally(new IllegalStateException("failed"));
-        assertThrows(EventDispatchException.class, result::join);
+        java.util.concurrent.CompletionException thrown =
+                assertThrows(java.util.concurrent.CompletionException.class, result::join);
+        assertInstanceOf(EventDispatchException.class, thrown.getCause());
         assertEquals(EventPublicationStatus.FAILED,
                 registry.all.values().iterator().next().status());
     }
