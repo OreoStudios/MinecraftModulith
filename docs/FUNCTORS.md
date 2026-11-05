@@ -1,77 +1,113 @@
 # Typed OCaml-inspired module functors
 
-An OCaml functor takes a module and produces another module. In Java,
-MinecraftModulith offers an analogous **typed factory**: a
-\`ModuleFunctor<P, M>\` receives parameter \`P\` and produces module \`M\`.
+MinecraftModulith supports **per-module typed parameters**. Its
+`ModuleFunctor<P, M>` is a Java analogue of applying an OCaml functor:
+it accepts a parameter of type `P` (often a Java record with several fields)
+and constructs a `MinecraftModule` of type `M`.
 
-The parameter can be an interface implementation or a Java record with
-**any number of strongly typed arguments**.
+The application happens during module startup, after declared dependencies have
+started. Existing `@PluginModule` IDs, boundary checks, named API dependencies,
+lifecycle and cleanup behavior still apply.
 
-## Example: swap an Economy implementation
+## Quick example: separate parameters for Economy, Homes and Shop
 
-\`\`\`java
-@ModuleApi("payments")
-public interface EconomyService {
-    long balance(UUID playerId);
+Each module declares its own independent parameter contract:
+
+```java
+record EconomyParameters(String currency, long startingBalance) {}
+record HomesParameters(int maxHomes, int teleportCooldownSeconds) {}
+record ShopParameters(double taxRate, String currency) {}
+```
+
+The modules can have constructors that **require** those records; a no-argument
+constructor is not needed when you use a functor:
+
+```java
+@PluginModule("demo-economy")
+final class ParameterizedEconomyModule implements MinecraftModule {
+    ParameterizedEconomyModule(EconomyParameters options) { /* ... */ }
 }
 
-record ShopOptions(int taxPercent, String currency) {}
-
-@PluginModule(value = "shop", dependencies = "economy::payments")
-public final class ShopModule implements MinecraftModule {
-    private final EconomyService economy;
-    private final ShopOptions options;
-
-    public ShopModule(EconomyService economy, ShopOptions options) {
-        this.economy = economy;
-        this.options = options;
-    }
-
-    @Override
-    public void enable(ModuleContext context) {
-        context.logger().info("Shop currency: " + options.currency());
-    }
+@PluginModule(value = "demo-homes", dependencies = "demo-economy::balance")
+final class ParameterizedHomesModule implements MinecraftModule {
+    ParameterizedHomesModule(HomesParameters options, EconomyBalanceService economy) { /* ... */ }
 }
-\`\`\`
 
-Apply your functor using an explicit factory, which runs **after economy
-starts**, not when the builder is configured:
+@PluginModule(value = "demo-shop", dependencies = "demo-economy::balance")
+final class ParameterizedShopModule implements MinecraftModule {
+    ParameterizedShopModule(ShopParameters options, EconomyBalanceService economy) { /* ... */ }
+}
+```
 
-\`\`\`java
-ModuleFunctor<ShopOptions, ShopModule> makeShop =
-        (options, context) -> new ShopModule(
-                context.services().require(EconomyService.class), options);
+Create all three modules independently in the Paper/Folia builder:
 
-ModuleRuntime runtime = ModuleRuntime.builder()
-        .module(EconomyModule.class)
-        .functor(ShopModule.class, new ShopOptions(5, "coins"), makeShop)
-        .start();
-\`\`\`
-
-The same API is available for Paper / Folia:
-\`\`\`java
+```java
 PaperModulith modulith = PaperModulith.builder(this)
-        .basePackage("com.example.plugin")
-        .functor(ShopModule.class, new ShopOptions(5, "coins"), makeShop)
-        .start();
-\`\`\`
+    .basePackage("dev.oreo.modulith.example")
+    .functor(ParameterizedEconomyModule.class,
+        new EconomyParameters("coins", 1000),
+        (params, ctx) -> new ParameterizedEconomyModule(params))
+    .functor(ParameterizedHomesModule.class,
+        new HomesParameters(5, 30),
+        (params, ctx) -> new ParameterizedHomesModule(
+            params, ctx.services().require(EconomyBalanceService.class)))
+    .functor(ParameterizedShopModule.class,
+        new ShopParameters(0.05, "coins"),
+        (params, ctx) -> new ParameterizedShopModule(
+            params, ctx.services().require(EconomyBalanceService.class)))
+    .start();
+```
 
-Your module retains its annotated ID, graph dependencies, API boundaries,
-lifecycle, scoped components, and cleanup behavior. The factory can resolve
-running module APIs through \`ModuleContext.services()\`. It can also receive
-a prebuilt API implementation directly as its parameter.
+The economy starts first because Homes and Shop declare its named API as a
+dependency. Each factory receives its **own** parameter record and the
+`ModuleContext` used to resolve the published `EconomyBalanceService`.
 
-This capability allows constructor arguments without a zero-argument module
-constructor. You can apply the same functor to different **runtimes** with
-different parameters or implementations.
+This code is wired into
+[`example-plugin/ExamplePlugin.java`](../example-plugin/src/main/java/dev/oreo/modulith/example/ExamplePlugin.java).
+Follow the definitions in
+[`example-plugin/.../functors/`](../example-plugin/src/main/java/dev/oreo/modulith/example/functors)
+for complete compiling Java types.
 
-**Scope:** exactly one functor binding per annotated module class in one
-runtime. This does **not** yet support OCaml generative functors that create
-multiple independently named instances of a template in the same runtime.
-Supporting that safely would require per-instance service namespaces and
-generated identities. Java also does not provide OCaml's module signature
-type system.
+**Note:** these example modules only log their settings and demonstrate service
+wiring; they do not implement a production economy, homes or shop system.
 
-Threading: a factory runs during module startup. To access Minecraft
-regions/entities from later async tasks, use the existing Paper/Folia
-context-aware schedulers.
+## Core-only example (without Paper)
+
+The same API works in plain Java tests and other runtime integrations:
+
+```java
+ModuleFunctor<ShopParameters, ParameterizedShopModule> makeShop =
+    (params, context) -> new ParameterizedShopModule(
+        params, context.services().require(EconomyBalanceService.class));
+
+try (ModuleRuntime runtime = ModuleRuntime.builder()
+    .functor(ParameterizedEconomyModule.class,
+        new EconomyParameters("pearls", 500),
+        (params, ctx) -> new ParameterizedEconomyModule(params))
+    .functor(ParameterizedShopModule.class,
+        new ShopParameters(0.02, "pearls"), makeShop)
+    .start()) {
+    // Both modules are running with independent typed parameters.
+}
+```
+
+The core module's
+[`ModuleFunctorTest.java`](../modulith-core/src/test/java/dev/oreo/modulith/core/ModuleFunctorTest.java)
+also tests **three different parameterized modules in one runtime**, independent
+parameters across runtimes, and failure/cleanup handling.
+
+## What this is (and what it is not)
+
+- One annotated module class has **one** functor binding in a runtime.
+- Each **different** annotated module class can use its own parameter type.
+- A record is useful for multiple strongly typed values, but interfaces and
+  strategy objects are valid parameters too.
+- You can reuse a factory with different parameters in **separate** runtimes.
+- This does **not** yet implement OCaml generative functors that create multiple
+  independent named instances of the *same* module class in one runtime.
+  That requires distinct module identities and service namespaces.
+- Java records and interfaces model contracts, but Java does not have OCaml's
+  full static module signature type system.
+
+A functor is called during module startup. Follow Folia threading restrictions
+when scheduling any later region/entity work through `PaperPlatform.contexts()`.

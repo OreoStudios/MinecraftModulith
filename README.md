@@ -73,7 +73,10 @@ The module must still declare `@PluginModule` and its dependency selectors.
 Works with `PaperModulith.builder(plugin)` as well. One typed application per
 annotated module type is supported in each runtime; multiple independent copies
 of one template with generative identities are not supported yet.
-See [Functor guide](docs/FUNCTORS.md).
+The runnable `example-plugin` also applies **three different functors**
+with separate `EconomyParameters`, `HomesParameters`, and `ShopParameters`
+records. See [Functor guide](docs/FUNCTORS.md) and
+[the Paper plugin example](example-plugin/src/main/java/dev/oreo/modulith/example/ExamplePlugin.java).
 
 ## Installation
 

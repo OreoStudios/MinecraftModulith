@@ -18,17 +18,43 @@ class ModuleFunctorTest {
 
     @PluginModule("economy")
     static final class Economy implements MinecraftModule, EconomyApi {
+        private final int startingBalance;
+
+        Economy() { this(20); }
+        Economy(int startingBalance) { this.startingBalance = startingBalance; }
+
         @Override
         public void enable(ModuleContext context) {
             EVENTS.add("economy:on");
             context.services().publish(EconomyApi.class, this);
         }
 
-        @Override public int balance() { return 20; }
+        @Override public int balance() { return startingBalance; }
         @Override public void disable() { EVENTS.add("economy:off"); }
     }
 
+    record EconomyOptions(int startingBalance, String currency) {}
+    record HomesOptions(int maxHomes, boolean cooldownEnabled) {}
     record ShopOptions(int multiplier, String currency) {}
+
+    @PluginModule(value = "homes", dependencies = "economy::payments")
+    static final class Homes implements MinecraftModule {
+        private final HomesOptions options;
+        private final EconomyApi economy;
+
+        Homes(HomesOptions options, EconomyApi economy) {
+            this.options = options;
+            this.economy = economy;
+        }
+
+        @Override
+        public void enable(ModuleContext context) {
+            EVENTS.add("homes:" + options.maxHomes() + ":" + options.cooldownEnabled()
+                    + ":" + economy.balance());
+        }
+
+        @Override public void disable() { EVENTS.add("homes:off"); }
+    }
 
     @PluginModule(value = "shop", dependencies = "economy::payments")
     static final class Shop implements MinecraftModule {
@@ -62,6 +88,32 @@ class ModuleFunctorTest {
             assertEquals(ModuleState.RUNNING, runtime.states().get("shop"));
         }
         assertEquals(List.of("economy:on", "shop:60:coins", "shop:off", "economy:off"), EVENTS);
+    }
+
+    @Test
+    void eachModuleCanHaveIndependentTypedParameters() {
+        EVENTS.clear();
+        try (ModuleRuntime runtime = ModuleRuntime.builder()
+                .functor(Economy.class, new EconomyOptions(150, "pearls"),
+                        (params, ctx) -> new Economy(params.startingBalance()))
+                .functor(Homes.class, new HomesOptions(7, true),
+                        (params, ctx) -> new Homes(
+                                params, ctx.services().require(EconomyApi.class)))
+                .functor(Shop.class, new ShopOptions(3, "pearls"), MAKE_SHOP)
+                .start()) {
+            assertEquals(List.of(
+                    "economy:on",
+                    "homes:7:true:150",
+                    "shop:450:pearls"
+            ), EVENTS);
+            assertEquals(ModuleState.RUNNING, runtime.states().get("economy"));
+            assertEquals(ModuleState.RUNNING, runtime.states().get("homes"));
+            assertEquals(ModuleState.RUNNING, runtime.states().get("shop"));
+        }
+        assertEquals(List.of(
+                "economy:on", "homes:7:true:150", "shop:450:pearls",
+                "shop:off", "homes:off", "economy:off"
+        ), EVENTS);
     }
 
     @Test
