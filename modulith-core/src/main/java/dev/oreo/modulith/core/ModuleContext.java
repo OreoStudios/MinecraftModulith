@@ -1,5 +1,6 @@
 package dev.oreo.modulith.core;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.logging.Logger;
@@ -8,6 +9,7 @@ import java.util.logging.Logger;
 public final class ModuleContext {
     private ModuleComponents components;
     private final String moduleId;
+    private final ModuleInstanceId instanceIdentity;
     private final ModuleServices services;
     private final EventBus events;
     private final LifecycleScope lifecycle;
@@ -17,6 +19,7 @@ public final class ModuleContext {
 
     ModuleContext(
             String moduleId,
+            String templateId,
             ModuleServices services,
             EventBus events,
             LifecycleScope lifecycle,
@@ -25,6 +28,7 @@ public final class ModuleContext {
             Logger logger
     ) {
         this.moduleId = moduleId;
+        this.instanceIdentity = new ModuleInstanceId(templateId, moduleId);
         this.services = services;
         this.events = events;
         this.lifecycle = lifecycle;
@@ -40,6 +44,11 @@ public final class ModuleContext {
 
     public String moduleId() {
         return moduleId;
+    }
+
+    /** Distinguishes the runtime instance from its annotated template identity. */
+    public ModuleInstanceId instanceIdentity() {
+        return instanceIdentity;
     }
 
     public ModuleServices services() {
@@ -78,7 +87,10 @@ public final class ModuleContext {
 
     /** Registers all @ModuleListener methods and automatically unsubscribes them on module stop. */
     public void listen(Object listener) {
-        for (EventBus.Subscription subscription : events.register(listener)) {
+        List<EventBus.Subscription> subscriptions = moduleId.equals(instanceIdentity.templateId())
+                ? events.register(listener)
+                : events.register(listener, moduleId);
+        for (EventBus.Subscription subscription : subscriptions) {
             lifecycle.onClose(subscription::close);
         }
     }

@@ -11,12 +11,29 @@ public record ModuleDescriptor(
         boolean configurationEnabled,
         boolean optional,
         List<String> after,
-        List<String> uses
+        List<String> uses,
+        String templateId
 ) {
     public ModuleDescriptor {
         dependencies = List.copyOf(dependencies);
         after = List.copyOf(after);
         uses = List.copyOf(uses);
+        if (id == null || id.isBlank() || templateId == null || templateId.isBlank()) {
+            throw new IllegalArgumentException("Module identity cannot be blank");
+        }
+    }
+
+    /** Compatibility constructor for the initial v0.6 descriptor with uses. */
+    public ModuleDescriptor(String id, List<String> dependencies,
+                            Class<? extends MinecraftModule> implementation,
+                            boolean configurationEnabled, boolean optional,
+                            List<String> after, List<String> uses) {
+        this(id, dependencies, implementation, configurationEnabled, optional, after, uses, id);
+    }
+
+    /** The stable runtime identity, with the template identity for duplicate instances. */
+    public ModuleInstanceId instanceIdentity() {
+        return new ModuleInstanceId(templateId, id);
     }
 
     /** Compatibility constructor for callers using the v0.5.x descriptor shape. */

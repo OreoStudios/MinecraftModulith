@@ -111,3 +111,51 @@ parameters across runtimes, and failure/cleanup handling.
 
 A functor is called during module startup. Follow Folia threading restrictions
 when scheduling any later region/entity work through `PaperPlatform.contexts()`.
+
+## Generative-style named module instances
+
+Different from `.functor()`, which constructs the default annotated module
+once, `.bind(instanceId, template, parameters, factory)` can create multiple
+independent instances of the **same template** in one runtime:
+
+```java
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .bind("wallet.east", Wallet.class, new WalletParams(100),
+        (params, ctx) -> new Wallet(params))
+    .bind("wallet.west", Wallet.class, new WalletParams(200),
+        (params, ctx) -> new Wallet(params))
+    .start();
+```
+
+The services registry keys publications by **instance ID and Java API
+contract**, so both wallets can publish the same `Balance.class`. A consumer
+chooses a specific provider using
+`ctx.services().require("wallet.west", Balance.class)` or
+`ctx.services().require(new ServiceKey<>("wallet.west", Balance.class))`.
+A bare `require(Balance.class)` succeeds only if one accessible provider
+publishes that contract; otherwise the registry reports ambiguity.
+
+Consumers should still declare `uses = "wallet::balance"` on their annotated
+template for compile-time access permission. At the composition root, configure
+runtime startup ordering for a named instance:
+
+```java
+.bind("reader.default", Reader.class, new ReaderParams(),
+    (params, ctx) -> new Reader(params))
+.dependsOn("reader.default", "wallet.east::balance", "wallet.west::balance")
+```
+
+`uses` grants API access without ordering; `dependsOn` adds the explicit
+startup dependencies. A consumer can also use an instance-qualified selector
+in the builder. The instance's `ModuleContext.instanceIdentity()` reports both
+the annotated template ID and its independent runtime ID.
+
+The same `.bind(...)` and `.dependsOn(...)` methods are available on
+`PaperModulith.Builder`. When a class is only named-bound, package discovery
+does not start an additional default copy of the class. Each instance has
+its own components, lifecycle resources, logging identity and configuration
+descriptor, while the event bus shares the runtime and namespaces listeners.
+
+This is an operational Java analogue of *generative* application. It is not
+OCaml's static generative type system: Java class identity is unchanged,
+and module instance identity is enforced by the runtime registry.

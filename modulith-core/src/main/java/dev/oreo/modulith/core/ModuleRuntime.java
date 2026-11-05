@@ -22,13 +22,13 @@ public final class ModuleRuntime implements AutoCloseable {
     private final List<ModuleDescriptor> startupOrder;
     private final Map<String, List<Class<?>>> componentTypes;
     private final Map<Class<?>, Object> platformServices;
-    private final Map<Class<? extends MinecraftModule>, ModuleFactory> moduleFactories;
+    private final Map<String, ModuleFactory> moduleFactories;
     private final Logger logger;
     private final EventPublicationRegistry publicationRegistry;
     private final ModuleConfigurationProvider configurationProvider;
     private final ModulithMetrics metrics;
     private final EventBus eventBus;
-    private final ConcurrentHashMap<Class<?>, ModuleServices.ServiceEntry> services = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ServiceKey<?>, ModuleServices.ServiceEntry> services = new ConcurrentHashMap<>();
     private final Map<String, RunningModule> running = new LinkedHashMap<>();
     private final Map<String, ModuleState> states = new LinkedHashMap<>();
     private final Map<String, Throwable> failures = new LinkedHashMap<>();
@@ -37,7 +37,7 @@ public final class ModuleRuntime implements AutoCloseable {
     private ModuleRuntime(
             List<ModuleDescriptor> startupOrder,
             Map<Class<?>, Object> platformServices,
-            Map<Class<? extends MinecraftModule>, ModuleFactory> moduleFactories,
+            Map<String, ModuleFactory> moduleFactories,
             Logger logger,
             Executor eventExecutor,
             EventPublicationRegistry publicationRegistry,
@@ -137,6 +137,7 @@ public final class ModuleRuntime implements AutoCloseable {
         try {
             ModuleServices moduleServices = new ModuleServices(
                     descriptor.id(),
+                    descriptor.templateId(),
                     descriptor.apiAccess(),
                     services
             );
@@ -146,6 +147,7 @@ public final class ModuleRuntime implements AutoCloseable {
 
             ModuleContext context = new ModuleContext(
                     descriptor.id(),
+                    descriptor.templateId(),
                     moduleServices,
                     eventBus,
                     lifecycle,
@@ -179,7 +181,7 @@ public final class ModuleRuntime implements AutoCloseable {
     }
 
     private MinecraftModule instantiate(ModuleDescriptor descriptor, ModuleContext context) throws Exception {
-        ModuleFactory factory = moduleFactories.get(descriptor.implementation());
+        ModuleFactory factory = moduleFactories.get(descriptor.id());
         if (factory != null) {
             MinecraftModule instance = Objects.requireNonNull(factory.create(context),
                     "Functor for module '" + descriptor.id() + "' returned null");
@@ -337,6 +339,8 @@ public final class ModuleRuntime implements AutoCloseable {
     public static final class Builder {
         private final Map<Class<? extends MinecraftModule>, ModuleFactory> moduleFactories = new LinkedHashMap<>();
         private final Set<Class<? extends MinecraftModule>> moduleTypes = new LinkedHashSet<>();
+        private final Map<String, InstanceBinding> instances = new LinkedHashMap<>();
+        private final Map<String, List<String>> instanceDependencies = new LinkedHashMap<>();
         private final Map<String, List<Class<?>>> components = new LinkedHashMap<>();
         private final Map<Class<?>, Object> platformServices = new LinkedHashMap<>();
         private Logger logger = Logger.getLogger("MinecraftModulith");
@@ -367,6 +371,39 @@ public final class ModuleRuntime implements AutoCloseable {
             }
             moduleTypes.add(moduleType);
             moduleFactories.put(moduleType, context -> functor.apply(parameters, context));
+            return this;
+        }
+
+        /**
+         * Instantiate the same annotated module template more than once with separate
+         * identities, parameters, resources and published APIs.
+         *
+         * <p>Unlike functor(), this does not register a default instance. Instance ids
+         * must be unique. Use dependsOn() to bind runtime requirements to named providers.
+         * The stable annotated template ID is kept for compile-time boundary checks.</p>
+         */
+        public <P, M extends MinecraftModule> Builder bind(
+                String instanceId, Class<M> moduleType, P parameters,
+                ModuleFunctor<? super P, ? extends M> functor) {
+            Objects.requireNonNull(instanceId, "instanceId");
+            Objects.requireNonNull(moduleType, "moduleType");
+            Objects.requireNonNull(parameters, "parameters");
+            Objects.requireNonNull(functor, "functor");
+            if (instanceId.isBlank() || instances.containsKey(instanceId)) {
+                throw new ModulithException("Invalid or duplicate module instance ID: " + instanceId);
+            }
+            instances.put(instanceId, new InstanceBinding(
+                    moduleType, context -> functor.apply(parameters, context)));
+            return this;
+        }
+
+        /** Replace an instance's startup dependencies with explicit instance selectors. */
+        public Builder dependsOn(String instanceId, String... requiredProviders) {
+            Objects.requireNonNull(requiredProviders, "requiredProviders");
+            if (!instances.containsKey(instanceId)) {
+                throw new ModulithException("Unknown module instance: " + instanceId);
+            }
+            instanceDependencies.put(instanceId, List.of(requiredProviders));
             return this;
         }
 
@@ -422,11 +459,28 @@ public final class ModuleRuntime implements AutoCloseable {
         }
 
         public ModuleRuntime build() {
-            List<ModuleDescriptor> descriptors = moduleTypes.stream().map(Builder::describe).toList();
+            List<ModuleDescriptor> descriptors = new ArrayList<>();
+            Map<String, ModuleFactory> factories = new LinkedHashMap<>();
+            for (Class<? extends MinecraftModule> type : moduleTypes) {
+                ModuleDescriptor definition = describe(type);
+                descriptors.add(definition);
+                ModuleFactory factory = moduleFactories.get(type);
+                if (factory != null) factories.put(definition.id(), factory);
+            }
+            instances.forEach((instanceId, binding) -> {
+                ModuleDescriptor definition = describe(binding.type());
+                List<String> dependencies = instanceDependencies.getOrDefault(
+                        instanceId, definition.dependencies());
+                descriptors.add(new ModuleDescriptor(
+                        instanceId, dependencies, binding.type(),
+                        definition.configurationEnabled(), definition.optional(),
+                        definition.after(), definition.uses(), definition.id()));
+                factories.put(instanceId, binding.factory());
+            });
             return new ModuleRuntime(
                     ModuleGraph.validateAndSort(descriptors),
                     platformServices,
-                    moduleFactories,
+                    factories,
                     logger,
                     eventExecutor,
                     publicationRegistry,
@@ -448,6 +502,11 @@ public final class ModuleRuntime implements AutoCloseable {
             }
             return ModuleBoundary.describe(type, annotation);
         }
+    }
+
+    private record InstanceBinding(
+            Class<? extends MinecraftModule> type, ModuleFactory factory
+    ) {
     }
 
     private record RunningModule(

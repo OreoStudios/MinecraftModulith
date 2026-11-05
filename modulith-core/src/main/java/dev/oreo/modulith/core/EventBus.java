@@ -73,6 +73,14 @@ public final class EventBus {
     }
 
     public List<Subscription> register(Object listener) {
+        return register(listener, null);
+    }
+
+    /**
+     * Registers listeners under a stable instance namespace, preventing
+     * duplicate listener IDs when one module template runs multiple times.
+     */
+    public List<Subscription> register(Object listener, String namespace) {
         Objects.requireNonNull(listener, "listener");
         List<Subscription> subscriptions = new ArrayList<>();
 
@@ -91,6 +99,10 @@ public final class EventBus {
                     ? listener.getClass().getName() + "#" + method.getName() + "(" + eventType.getName() + ")"
                     : annotation.id();
 
+            if (namespace != null) {
+                if (namespace.isBlank()) throw new IllegalArgumentException("namespace cannot be blank");
+                listenerId = namespace + "::" + listenerId;
+            }
             Handler handler = new Handler(
                     listenerId,
                     annotation.delivery(),
