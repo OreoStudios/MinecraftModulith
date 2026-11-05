@@ -51,6 +51,22 @@ class LayeredModuleBoundaryTest {
     }
 
     @Test
+    void packageLevelUsesGrantsAccessAndAppearsInModuleIndex() throws Exception {
+        Map<String, String> sources = rewards("");
+        sources.put("sample/rewards/package-info.java", """
+                @dev.oreo.modulith.core.ApplicationModule(
+                    id = "rewards", uses = "economy::payments")
+                package sample.rewards;
+                """);
+        Result result = compile(economy(), sources);
+        assertTrue(result.success(), result.diagnostics());
+        String index = Files.readString(result.output().resolve(
+                "META-INF/minecraft-modulith/modules.idx"));
+        assertTrue(index.contains(
+                "rewards|sample.rewards.lifecycle.RewardsModule||false|economy::payments"), index);
+    }
+
+    @Test
     void apiAccessWithoutDependencyOrUsesIsRejected() throws Exception {
         Result result = compile(economy(), rewards(""));
         assertFalse(result.success());

@@ -79,7 +79,9 @@ public final class ModuleScheduler {
             Method run = scheduler.getClass().getMethod("run", Plugin.class, Consumer.class, Runnable.class);
             Object task = run.invoke(scheduler, plugin, (Consumer<Object>) ignored -> work.run(),
                     (Runnable) () -> {});
-            if (task == null) return () -> {}; // Entity already retired.
+            if (task == null) {
+                throw new ModulithException("Cannot schedule entity task: entity already retired");
+            }
             return reflective(task);
         } catch (ReflectiveOperationException ex) {
             throw new ModulithException("Could not schedule Folia entity task", ex);

@@ -318,6 +318,21 @@ public final class ModuleRuntime implements AutoCloseable {
         return messages;
     }
 
+    /** Immutable, validated view of the running module definitions and instances. */
+    public ModuleCatalog catalog() {
+        return ModuleCatalog.of(startupOrder);
+    }
+
+    /** Architecture report includes template identity, runtime instances and access contracts. */
+    public String architectureMarkdown() {
+        return ModuleArchitectureReport.markdown(startupOrder);
+    }
+
+    /** Machine-readable architecture report suitable for CI artifact comparison. */
+    public String architectureJson() {
+        return ModuleArchitectureReport.json(startupOrder);
+    }
+
     public String graphMermaid() {
         return ModuleGraphExporter.toMermaid(startupOrder);
     }
@@ -478,7 +493,7 @@ public final class ModuleRuntime implements AutoCloseable {
                 factories.put(instanceId, binding.factory());
             });
             return new ModuleRuntime(
-                    ModuleGraph.validateAndSort(descriptors),
+                    ModuleCatalog.of(descriptors).modules(),
                     platformServices,
                     factories,
                     logger,

@@ -176,7 +176,8 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                 continue;
             }
             ModuleInfo info = new ModuleInfo(id, packageName, generated,
-                    List.of(annotation.allowedDependencies()), annotation.configuration(), pkg, List.of());
+                    List.of(annotation.allowedDependencies()), annotation.configuration(), pkg,
+                    List.of(annotation.uses()));
             ModuleInfo previous = modulesById.putIfAbsent(id, info);
             if (previous != null && !previous.className().equals(generated)) {
                 error(pkg, "Duplicate MinecraftModulith module id '" + id + "'");
@@ -189,9 +190,11 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                 try (Writer writer = file.openWriter()) {
                     String quoted = quote(annotation.allowedDependencies());
                     String quotedAfter = quote(annotation.after());
+                    String quotedUses = quote(annotation.uses());
                     writer.write("package " + packageName + ";\n");
                     writer.write("@dev.oreo.modulith.core.PluginModule(value=\"" + id +
-                            "\", dependencies={" + quoted + "}, after={" + quotedAfter + "}, configuration=" +
+                            "\", dependencies={" + quoted + "}, after={" + quotedAfter
+                            + "}, uses={" + quotedUses + "}, configuration=" +
                             annotation.configuration() + ", optional=" + annotation.optional() + ")\n");
                     writer.write("public final class __MinecraftModulithModule implements " +
                             "dev.oreo.modulith.core.MinecraftModule {}\n");
@@ -229,8 +232,10 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             List<String> dependencies = mergeDeclarations(pkg, id, "dependencies",
                     declared.dependencies(), annotation.allowedDependencies());
             mergeDeclarations(pkg, id, "after", declared.after(), annotation.after());
+            List<String> uses = mergeDeclarations(pkg, id, "uses",
+                    declared.uses(), annotation.uses());
             ModuleInfo merged = new ModuleInfo(id, packageName, lifecycle.className(), dependencies,
-                    declared.configuration() || annotation.configuration(), type, List.of(declared.uses()));
+                    declared.configuration() || annotation.configuration(), type, uses);
             modulesByPackage.remove(lifecycle.packageName());
             modulesByPackage.put(packageName, merged);
             modulesById.put(id, merged);
@@ -251,9 +256,13 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
                         if (!dependencies.contains(dependency)) dependencies.add(dependency);
                     }
                 }
-                List<String> uses = columns.length > 4 && !columns[4].isBlank() ? List.of(columns[4].split(",")) : List.of();
+                Set<String> collectedUses = new java.util.LinkedHashSet<>(List.of(annotation.uses()));
+                if (columns.length > 4 && !columns[4].isBlank()) {
+                    collectedUses.addAll(List.of(columns[4].split(",")));
+                }
                 ModuleInfo info = new ModuleInfo(id, packageName, className, dependencies,
-                        annotation.configuration() || Boolean.parseBoolean(columns[3]), pkg, uses);
+                        annotation.configuration() || Boolean.parseBoolean(columns[3]), pkg,
+                        List.copyOf(collectedUses));
                 modulesById.put(id, info);
                 modulesByPackage.put(packageName, info);
                 return true;
