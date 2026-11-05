@@ -76,7 +76,9 @@ public final class ModuleGraphExporter {
     }
 
     private static String node(String id) {
-        return "m_" + id.replaceAll("[^A-Za-z0-9_]", "_");
+        // Keep labels readable but disambiguate ids such as wallet.east vs wallet_east.
+        return "m_" + id.replaceAll("[^A-Za-z0-9_]", "_")
+                + "_" + Integer.toHexString(id.hashCode());
     }
 
     private static String escape(String value) {

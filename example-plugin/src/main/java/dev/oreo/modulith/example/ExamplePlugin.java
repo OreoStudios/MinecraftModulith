@@ -54,6 +54,7 @@ public final class ExamplePlugin extends JavaPlugin {
 
         getLogger().info("Module graph:\n" + modulith.runtime().graphMermaid());
         getLogger().info("Diagnostics: " + modulith.runtime().diagnostics());
+        getLogger().info("Architecture report:\n" + modulith.runtime().architectureMarkdown());
     }
 
     private AutoCloseable buildRegistry() {

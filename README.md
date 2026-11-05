@@ -9,7 +9,7 @@
 
 MinecraftModulith helps you build large Paper/Folia plugins as a set of explicit, testable modules instead of one tightly coupled codebase. It provides module boundaries, named APIs, dependency validation, lifecycle management, constructor injection, events, event recovery and retry, diagnostics, typed configuration, scheduling adapters, observability, and test utilities while still producing a normal Minecraft plugin.
 
-> **Current release:** `v0.5.3`  
+> **Current release:** `v0.5.3` — new architecture features in this branch are **unreleased** until the PR is merged and a new version is published.  
 > **Java:** 21  
 > **Platform:** Paper 1.21.x + Folia-aware scheduling
 
@@ -77,6 +77,28 @@ The runnable `example-plugin` also applies **three different functors**
 with separate `EconomyParameters`, `HomesParameters`, and `ShopParameters`
 records. See [Functor guide](docs/FUNCTORS.md) and
 [the Paper plugin example](example-plugin/src/main/java/dev/oreo/modulith/example/ExamplePlugin.java).
+
+## Architecture kernel (unreleased)
+
+This branch adds a validated `ModuleCatalog`, distinct module template and
+instance IDs, instance-qualified `ServiceKey<T>` registration, and explicit
+Paper/Folia event affinity via `PaperPlatform.eventRoutes(context)`.
+
+```java
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .bind("wallet.east", WalletModule.class, new WalletParams(100),
+        (params, ctx) -> new WalletModule(params))
+    .bind("wallet.west", WalletModule.class, new WalletParams(200),
+        (params, ctx) -> new WalletModule(params))
+    .start();
+
+String architectureJson = runtime.architectureJson();
+```
+
+The example plugin now includes a Paper/Folia smoke module that registers
+real global, region, entity and async routes on player join. See
+[architecture decisions and test instructions](docs/ARCHITECTURE.md).
+These are *development-branch APIs*, not features of the published 0.5.3 artifacts.
 
 ## Installation
 
