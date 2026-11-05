@@ -55,7 +55,7 @@ public final class PaperSmokeModule implements MinecraftModule {
                                 "SMOKE Paper/Folia event routes failed", cause);
                     } else {
                         context.logger().info("SMOKE completed "
-                                + result.dispatchedListeners() + " delivery routes");
+                                + result.listeners() + " delivery routes");
                     }
                 });
             }
