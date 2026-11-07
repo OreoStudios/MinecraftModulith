@@ -46,7 +46,7 @@ public final class PaperEventRoutes {
     public <E> EventBus.Subscription global(
             Class<E> eventType, String listenerId, Consumer<? super E> listener) {
         return register(eventType, listenerId, listener,
-                (event, work) -> scheduler.globalUnmanaged(work));
+                (event, work, retired) -> scheduler.globalUnmanaged(work));
     }
 
     /** Execute with ownership of the target location's region. */
@@ -55,7 +55,7 @@ public final class PaperEventRoutes {
             Function<? super E, Location> target, Consumer<? super E> listener) {
         Objects.requireNonNull(target, "target");
         return register(eventType, listenerId, listener,
-                (event, work) -> scheduler.regionUnmanaged(
+                (event, work, retired) -> scheduler.regionUnmanaged(
                         Objects.requireNonNull(target.apply(event), "region target"), work));
     }
 
@@ -65,15 +65,15 @@ public final class PaperEventRoutes {
             Function<? super E, Entity> target, Consumer<? super E> listener) {
         Objects.requireNonNull(target, "target");
         return register(eventType, listenerId, listener,
-                (event, work) -> scheduler.entityUnmanaged(
-                        Objects.requireNonNull(target.apply(event), "entity target"), work));
+                (event, work, retired) -> scheduler.entityUnmanaged(
+                        Objects.requireNonNull(target.apply(event), "entity target"), work, retired));
     }
 
     /** Execute off-thread; never access Bukkit entity or region-owned state. */
     public <E> EventBus.Subscription async(
             Class<E> eventType, String listenerId, Consumer<? super E> listener) {
         return register(eventType, listenerId, listener,
-                (event, work) -> scheduler.asyncUnmanaged(work));
+                (event, work, retired) -> scheduler.asyncUnmanaged(work));
     }
 
     private <E> EventBus.Subscription register(Class<E> eventType, String listenerId,
@@ -102,6 +102,8 @@ public final class PaperEventRoutes {
         pending.add(delivery);
         result.whenComplete((value, error) -> pending.remove(delivery));
         try {
+            Runnable retired = EntityRouteCompletion.retiredCallback(result);
+
             ScheduledTaskHandle handle = route.schedule(event, () -> {
                 if (result.isDone()) return;
                 try {
@@ -110,7 +112,7 @@ public final class PaperEventRoutes {
                 } catch (Throwable failure) {
                     result.completeExceptionally(failure);
                 }
-            });
+            }, retired);
             delivery.handle.set(handle);
             if (closed.get()) delivery.cancel(new CancellationException("Module is stopped"));
         } catch (Throwable failure) {
@@ -121,7 +123,7 @@ public final class PaperEventRoutes {
 
     @FunctionalInterface
     private interface Route<E> {
-        ScheduledTaskHandle schedule(E event, Runnable callback);
+        ScheduledTaskHandle schedule(E event, Runnable callback, Runnable retired);
     }
 
     private static final class Pending {

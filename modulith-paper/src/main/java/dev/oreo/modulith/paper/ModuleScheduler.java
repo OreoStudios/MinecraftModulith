@@ -71,14 +71,18 @@ public final class ModuleScheduler {
     }
 
     ScheduledTaskHandle entityUnmanaged(Entity entity, Runnable work) {
+        return entityUnmanaged(entity, work, () -> {});
+    }
+
+    ScheduledTaskHandle entityUnmanaged(Entity entity, Runnable work, Runnable retired) {
         Objects.requireNonNull(entity);
         Objects.requireNonNull(work);
+        Objects.requireNonNull(retired);
         if (!global.folia()) return Bukkit.getScheduler().runTask(plugin, work)::cancel;
         try {
             Object scheduler = entity.getClass().getMethod("getScheduler").invoke(entity);
             Method run = scheduler.getClass().getMethod("run", Plugin.class, Consumer.class, Runnable.class);
-            Object task = run.invoke(scheduler, plugin, (Consumer<Object>) ignored -> work.run(),
-                    (Runnable) () -> {});
+            Object task = run.invoke(scheduler, plugin, (Consumer<Object>) ignored -> work.run(), retired);
             if (task == null) {
                 throw new ModulithException("Cannot schedule entity task: entity already retired");
             }
