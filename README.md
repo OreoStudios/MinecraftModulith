@@ -9,7 +9,7 @@
 
 MinecraftModulith helps you build large Paper/Folia plugins as a set of explicit, testable modules instead of one tightly coupled codebase. It provides module boundaries, named APIs, dependency validation, lifecycle management, constructor injection, events, event recovery and retry, diagnostics, typed configuration, scheduling adapters, observability, and test utilities while still producing a normal Minecraft plugin.
 
-> **Current release:** `v0.5.3`  
+> **Current release:** `v0.5.3` — new architecture features in this branch are **unreleased** until the PR is merged and a new version is published.  
 > **Java:** 21  
 > **Platform:** Paper 1.21.x + Folia-aware scheduling
 
@@ -51,6 +51,54 @@ public final class HomesModule implements MinecraftModule {
 ```
 
 That means fewer accidental dependencies, safer refactors, clearer startup order, and architecture problems caught before they become runtime bugs.
+
+## Typed module functors (OCaml-inspired)
+
+Each annotated module can be parameterized through a typed factory. A parameter
+may be a record with multiple fields, a public API implementation, or a domain
+strategy. The factory receives a `ModuleContext` after dependencies are running.
+
+```java
+record ShopOptions(int taxPercent, String currency) {}
+
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .module(EconomyModule.class)
+    .functor(ShopModule.class, new ShopOptions(5, "coins"),
+        (opts, context) -> new ShopModule(
+            context.services().require(EconomyService.class), opts))
+    .start();
+```
+
+The module must still declare `@PluginModule` and its dependency selectors.
+Works with `PaperModulith.builder(plugin)` as well. One typed application per
+annotated module type is supported in each runtime; multiple independent copies
+of one template with generative identities are not supported yet.
+The runnable `example-plugin` also applies **three different functors**
+with separate `EconomyParameters`, `HomesParameters`, and `ShopParameters`
+records. See [Functor guide](docs/FUNCTORS.md) and
+[the Paper plugin example](example-plugin/src/main/java/dev/oreo/modulith/example/ExamplePlugin.java).
+
+## Architecture kernel (unreleased)
+
+This branch adds a validated `ModuleCatalog`, distinct module template and
+instance IDs, instance-qualified `ServiceKey<T>` registration, and explicit
+Paper/Folia event affinity via `PaperPlatform.eventRoutes(context)`.
+
+```java
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .bind("wallet.east", WalletModule.class, new WalletParams(100),
+        (params, ctx) -> new WalletModule(params))
+    .bind("wallet.west", WalletModule.class, new WalletParams(200),
+        (params, ctx) -> new WalletModule(params))
+    .start();
+
+String architectureJson = runtime.architectureJson();
+```
+
+The example plugin now includes a Paper/Folia smoke module that registers
+real global, region, entity and async routes on player join. See
+[architecture decisions and test instructions](docs/ARCHITECTURE.md).
+These are *development-branch APIs*, not features of the published 0.5.3 artifacts.
 
 ## Installation
 

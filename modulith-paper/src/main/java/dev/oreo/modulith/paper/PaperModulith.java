@@ -10,6 +10,7 @@ import dev.oreo.modulith.core.PluginModule;
 import dev.oreo.modulith.core.ModuleComponent;
 import dev.oreo.modulith.core.ModuleBoundary;
 import dev.oreo.modulith.core.ModuleContributor;
+import dev.oreo.modulith.core.ModuleFunctor;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ScanResult;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.ServiceLoader;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 
@@ -51,6 +53,10 @@ public final class PaperModulith implements AutoCloseable {
         private final JavaPlugin plugin;
         private final Set<Class<? extends MinecraftModule>> explicitModules = new LinkedHashSet<>();
         private final Map<String, List<Class<?>>> explicitComponents = new LinkedHashMap<>();
+        private final Map<Class<? extends MinecraftModule>, Consumer<ModuleRuntime.Builder>> functors = new LinkedHashMap<>();
+        private final Map<String, Consumer<ModuleRuntime.Builder>> instances = new LinkedHashMap<>();
+        private final Map<String, Class<? extends MinecraftModule>> instanceTypes = new LinkedHashMap<>();
+        private final Map<String, List<String>> instanceDependencies = new LinkedHashMap<>();
         private String basePackage;
         private boolean discoverContributors;
         private boolean diagnosticsCommand;
@@ -90,6 +96,48 @@ public final class PaperModulith implements AutoCloseable {
             return this;
         }
 
+        /**
+         * Binds a typed functor to an explicit or discovered module class.
+         * The functor replaces no-argument module construction at startup.
+         */
+        public <P, M extends MinecraftModule> Builder functor(
+                Class<M> moduleType, P parameters, ModuleFunctor<? super P, ? extends M> functor) {
+            Objects.requireNonNull(moduleType, "moduleType");
+            Objects.requireNonNull(parameters, "parameters");
+            Objects.requireNonNull(functor, "functor");
+            if (functors.containsKey(moduleType)) {
+                throw new ModulithException("Functor already bound for " + moduleType.getName());
+            }
+            explicitModules.add(moduleType);
+            functors.put(moduleType, runtime -> runtime.functor(moduleType, parameters, functor));
+            return this;
+        }
+
+        /** Register a named, independently parameterized instance of a module template. */
+        public <T, M extends MinecraftModule> Builder bind(
+                String instanceId, Class<M> moduleType, T parameters,
+                ModuleFunctor<? super T, ? extends M> factory) {
+            Objects.requireNonNull(instanceId, "instanceId");
+            Objects.requireNonNull(moduleType, "moduleType");
+            Objects.requireNonNull(parameters, "parameters");
+            Objects.requireNonNull(factory, "factory");
+            if (instanceId.isBlank() || instances.containsKey(instanceId)) {
+                throw new ModulithException("Duplicate or invalid module instance: " + instanceId);
+            }
+            instances.put(instanceId, runtime -> runtime.bind(instanceId, moduleType, parameters, factory));
+            instanceTypes.put(instanceId, moduleType);
+            return this;
+        }
+
+        /** Override a named instance's startup dependency selectors. */
+        public Builder dependsOn(String instanceId, String... dependencies) {
+            if (!instances.containsKey(instanceId)) {
+                throw new ModulithException("Unknown module instance: " + instanceId);
+            }
+            instanceDependencies.put(instanceId, List.of(dependencies));
+            return this;
+        }
+
         public Builder publicationRegistry(EventPublicationRegistry publicationRegistry) {
             this.publicationRegistry = Objects.requireNonNull(publicationRegistry, "publicationRegistry");
             return this;
@@ -113,7 +161,11 @@ public final class PaperModulith implements AutoCloseable {
         public PaperModulith start() {
             Set<Class<? extends MinecraftModule>> modules = new LinkedHashSet<>(explicitModules);
             if (basePackage != null && !basePackage.isBlank()) {
-                modules.addAll(discover(basePackage));
+                // Bound templates are instantiated only by their named bindings unless
+                // the caller also explicitly registers the default module class.
+                Set<Class<? extends MinecraftModule>> discovered = discover(basePackage);
+                discovered.removeAll(instanceTypes.values());
+                modules.addAll(discovered);
             }
             if (discoverContributors) {
                 ServiceLoader.load(ModuleContributor.class, plugin.getClass().getClassLoader()).forEach(provider -> {
@@ -122,7 +174,7 @@ public final class PaperModulith implements AutoCloseable {
                             types.forEach(type -> component(moduleId, type)));
                 });
             }
-            if (modules.isEmpty()) {
+            if (modules.isEmpty() && instances.isEmpty()) {
                 throw new ModulithException("No MinecraftModulith modules were discovered");
             }
 
@@ -141,10 +193,26 @@ public final class PaperModulith implements AutoCloseable {
                     .eventExecutor(eventExecutor)
                     .configurationProvider(configs)
                     .logger(plugin.getLogger());
+            functors.values().forEach(binding -> binding.accept(runtimeBuilder));
+            instances.values().forEach(binding -> binding.accept(runtimeBuilder));
+            instanceDependencies.forEach((id, dependencies) ->
+                    runtimeBuilder.dependsOn(id, dependencies.toArray(String[]::new)));
             explicitComponents.forEach((id, types) -> types.forEach(type -> runtimeBuilder.component(id, type)));
             if (basePackage != null && !basePackage.isBlank()) {
-                discoverComponents(basePackage, modules).forEach((id, types) ->
-                        types.forEach(type -> runtimeBuilder.component(id, type)));
+                Set<Class<? extends MinecraftModule>> componentOwners = new LinkedHashSet<>(modules);
+                componentOwners.addAll(instanceTypes.values());
+                discoverComponents(basePackage, componentOwners).forEach((id, types) -> {
+                    if (modules.stream().anyMatch(type -> type.getAnnotation(PluginModule.class)
+                            .value().equals(id))) {
+                        types.forEach(type -> runtimeBuilder.component(id, type));
+                    }
+                    instanceTypes.forEach((instanceId, type) -> {
+                        if (type.getAnnotation(PluginModule.class).value().equals(id)) {
+                            types.forEach(componentType ->
+                                    runtimeBuilder.component(instanceId, componentType));
+                        }
+                    });
+                });
             }
             ModuleRuntime runtime = runtimeBuilder.start();
             if (diagnosticsCommand) {

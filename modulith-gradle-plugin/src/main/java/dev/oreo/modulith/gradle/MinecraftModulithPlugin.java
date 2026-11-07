@@ -61,6 +61,16 @@ public final class MinecraftModulithPlugin implements Plugin<Project> {
                                 markdown.append("- Depends on `").append(dependency).append("`\n");
                             }
                         }
+                        if (values.length > 4 && !values[4].isBlank()) {
+                            for (String use : values[4].split(",")) {
+                                String target = use.split("::", 2)[0];
+                                mermaid.append("  ").append(id)
+                                        .append(" -.->|uses| ").append(target).append("\n");
+                                markdown.append("- Uses (no startup order) `")
+                                        .append(use).append("`\n");
+                            }
+                        }
+                        markdown.append("\n");
                     }
                     Path output = project.getLayout().getBuildDirectory()
                             .file("reports/modulith").get().getAsFile().toPath();

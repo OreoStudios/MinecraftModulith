@@ -45,7 +45,11 @@ class ModuleBoundaryTest {
 
     @Test
     void usesDoesNotBecomeALifecycleDependency() {
-        assertEquals(List.of("other"), ModuleRuntime.Builder.describe(Collaborator.class).dependencies());
+        ModuleDescriptor descriptor = ModuleRuntime.Builder.describe(Collaborator.class);
+        assertEquals(List.of("other"), descriptor.dependencies());
+        assertEquals(List.of("menus::screens"), descriptor.uses());
+        assertEquals(List.of("other", "menus::screens"),
+                descriptor.apiAccess().stream().map(ModuleDependency::toString).toList());
     }
 
     @PluginModule(value = "collaborator", dependencies = "other", uses = "menus::screens")

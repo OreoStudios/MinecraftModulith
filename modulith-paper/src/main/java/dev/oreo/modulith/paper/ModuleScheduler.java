@@ -31,7 +31,12 @@ public final class ModuleScheduler {
      * or block region, even though it runs synchronously in its own context.
      */
     public ScheduledTaskHandle global(ModuleContext scope, Runnable work) {
-        return own(scope, global.run(work));
+        return own(scope, globalUnmanaged(work));
+    }
+
+    // Used by PaperEventRoutes, which owns pending tasks in one lifecycle scope.
+    ScheduledTaskHandle globalUnmanaged(Runnable work) {
+        return global.run(work);
     }
 
     /**
@@ -40,14 +45,18 @@ public final class ModuleScheduler {
      * entities, which can migrate to another region before execution.
      */
     public ScheduledTaskHandle region(ModuleContext scope, Location location, Runnable work) {
+        return own(scope, regionUnmanaged(location, work));
+    }
+
+    ScheduledTaskHandle regionUnmanaged(Location location, Runnable work) {
         Objects.requireNonNull(location);
         Objects.requireNonNull(work);
-        if (!global.folia()) return own(scope, Bukkit.getScheduler().runTask(plugin, work)::cancel);
+        if (!global.folia()) return Bukkit.getScheduler().runTask(plugin, work)::cancel;
         try {
             Object scheduler = Bukkit.class.getMethod("getRegionScheduler").invoke(null);
             Method run = scheduler.getClass().getMethod("run", Plugin.class, Location.class, Consumer.class);
             Object task = run.invoke(scheduler, plugin, location, (Consumer<Object>) ignored -> work.run());
-            return own(scope, reflective(task));
+            return reflective(task);
         } catch (ReflectiveOperationException ex) {
             throw new ModulithException("Could not schedule Folia region task", ex);
         }
@@ -58,16 +67,26 @@ public final class ModuleScheduler {
      * If the entity has retired, Folia may decline scheduling the task.
      */
     public ScheduledTaskHandle entity(ModuleContext scope, Entity entity, Runnable work) {
+        return own(scope, entityUnmanaged(entity, work));
+    }
+
+    ScheduledTaskHandle entityUnmanaged(Entity entity, Runnable work) {
+        return entityUnmanaged(entity, work, () -> {});
+    }
+
+    ScheduledTaskHandle entityUnmanaged(Entity entity, Runnable work, Runnable retired) {
         Objects.requireNonNull(entity);
         Objects.requireNonNull(work);
-        if (!global.folia()) return own(scope, Bukkit.getScheduler().runTask(plugin, work)::cancel);
+        Objects.requireNonNull(retired);
+        if (!global.folia()) return Bukkit.getScheduler().runTask(plugin, work)::cancel;
         try {
             Object scheduler = entity.getClass().getMethod("getScheduler").invoke(entity);
             Method run = scheduler.getClass().getMethod("run", Plugin.class, Consumer.class, Runnable.class);
-            Object task = run.invoke(scheduler, plugin, (Consumer<Object>) ignored -> work.run(),
-                    (Runnable) () -> {});
-            if (task == null) return () -> {}; // Entity already retired.
-            return own(scope, reflective(task));
+            Object task = run.invoke(scheduler, plugin, (Consumer<Object>) ignored -> work.run(), retired);
+            if (task == null) {
+                throw new ModulithException("Cannot schedule entity task: entity already retired");
+            }
+            return reflective(task);
         } catch (ReflectiveOperationException ex) {
             throw new ModulithException("Could not schedule Folia entity task", ex);
         }
@@ -78,16 +97,20 @@ public final class ModuleScheduler {
      * Schedule any world changes back through {@link #region} or {@link #entity}.
      */
     public ScheduledTaskHandle async(ModuleContext scope, Runnable work) {
+        return own(scope, asyncUnmanaged(work));
+    }
+
+    ScheduledTaskHandle asyncUnmanaged(Runnable work) {
         Objects.requireNonNull(work);
         if (!global.folia()) {
             BukkitTask task = Bukkit.getScheduler().runTaskAsynchronously(plugin, work);
-            return own(scope, task::cancel);
+            return task::cancel;
         }
         try {
             Object scheduler = Bukkit.class.getMethod("getAsyncScheduler").invoke(null);
             Method run = scheduler.getClass().getMethod("runNow", Plugin.class, Consumer.class);
             Object task = run.invoke(scheduler, plugin, (Consumer<Object>) ignored -> work.run());
-            return own(scope, reflective(task));
+            return reflective(task);
         } catch (ReflectiveOperationException ex) {
             throw new ModulithException("Could not schedule Folia async task", ex);
         }

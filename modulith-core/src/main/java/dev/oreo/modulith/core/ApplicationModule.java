@@ -8,6 +8,8 @@ import java.lang.annotation.*;
 public @interface ApplicationModule {
     String id();
     String[] allowedDependencies() default {};
+    /** See {@link PluginModule#uses()}: API access without startup ordering. */
+    String[] uses() default {};
     /** See {@link PluginModule#after()}. */
     String[] after() default {};
     boolean configuration() default false;

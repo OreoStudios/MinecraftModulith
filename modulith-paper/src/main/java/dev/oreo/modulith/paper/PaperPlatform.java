@@ -47,6 +47,11 @@ public final class PaperPlatform {
         return contexts;
     }
 
+    /** Typed Paper/Folia event routing: region/entity ownership is explicit. */
+    public PaperEventRoutes eventRoutes(ModuleContext context) {
+        return new PaperEventRoutes(Objects.requireNonNull(context, "context"), contexts);
+    }
+
     public <T extends Listener> T registerListener(ModuleContext context, T listener) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(listener, "listener");
