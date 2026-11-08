@@ -70,9 +70,11 @@ ModuleRuntime runtime = ModuleRuntime.builder()
 ```
 
 The module must still declare `@PluginModule` and its dependency selectors.
-Works with `PaperModulith.builder(plugin)` as well. One typed application per
-annotated module type is supported in each runtime; multiple independent copies
-of one template with generative identities are not supported yet.
+Works with `PaperModulith.builder(plugin)` as well. `functor()` configures one
+parameterized default instance per module type; use `bind(instanceId, ...)` to
+run multiple independent named instances of the same module template in one
+runtime. See [Architecture kernel](docs/ARCHITECTURE.md) for instance-qualified
+API access and dependency binding.
 The runnable `example-plugin` also applies **three different functors**
 with separate `EconomyParameters`, `HomesParameters`, and `ShopParameters`
 records. See [Functor guide](docs/FUNCTORS.md) and
