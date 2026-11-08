@@ -1084,6 +1084,11 @@ Current release:
 v0.6.0
 ```
 
+## Community
+
+Join the [MinecraftModulith Discord](https://discord.gg/A6wCGJD2Ez) to ask questions,
+share feedback, and connect with other users.
+
 ## License
 
 MinecraftModulith is released under the [MIT License](LICENSE).
