@@ -1,8 +1,7 @@
-# MinecraftModulith kernel architecture (0.6.x proposal)
+# MinecraftModulith kernel architecture (0.6.x)
 
-> **Status:** implemented on the unmerged development PR. The current published
-> version is still 0.5.3. This document describes the PR's architecture; it
-> is not a promise of a released, fully backward-compatible API.
+> **Status:** released in version 0.6.0. This document describes the public
+> architecture and runtime guarantees of the 0.6.x line.
 
 ## Purpose
 

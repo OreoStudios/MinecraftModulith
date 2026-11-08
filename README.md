@@ -9,7 +9,7 @@
 
 MinecraftModulith helps you build large Paper/Folia plugins as a set of explicit, testable modules instead of one tightly coupled codebase. It provides module boundaries, named APIs, dependency validation, lifecycle management, constructor injection, events, event recovery and retry, diagnostics, typed configuration, scheduling adapters, observability, and test utilities while still producing a normal Minecraft plugin.
 
-> **Current release:** `v0.5.3` — new architecture features in this branch are **unreleased** until the PR is merged and a new version is published.  
+> **Current release:** `v0.6.0`
 > **Java:** 21  
 > **Platform:** Paper 1.21.x + Folia-aware scheduling
 
@@ -80,9 +80,9 @@ with separate `EconomyParameters`, `HomesParameters`, and `ShopParameters`
 records. See [Functor guide](docs/FUNCTORS.md) and
 [the Paper plugin example](example-plugin/src/main/java/dev/oreo/modulith/example/ExamplePlugin.java).
 
-## Architecture kernel (unreleased)
+## Architecture kernel
 
-This branch adds a validated `ModuleCatalog`, distinct module template and
+MinecraftModulith 0.6.0 adds a validated `ModuleCatalog`, distinct module template and
 instance IDs, instance-qualified `ServiceKey<T>` registration, and explicit
 Paper/Folia event affinity via `PaperPlatform.eventRoutes(context)`.
 
@@ -100,7 +100,7 @@ String architectureJson = runtime.architectureJson();
 The example plugin now includes a Paper/Folia smoke module that registers
 real global, region, entity and async routes on player join. See
 [architecture decisions and test instructions](docs/ARCHITECTURE.md).
-These are *development-branch APIs*, not features of the published 0.5.3 artifacts.
+These APIs are included in the published 0.6.0 artifacts.
 
 ## Installation
 
@@ -121,19 +121,19 @@ repositories {
 }
 
 dependencies {
-    implementation("dev.oreo.modulith:modulith-paper:0.5.3")
+    implementation("dev.oreo.modulith:modulith-paper:0.6.0")
 
-    annotationProcessor("dev.oreo.modulith:modulith-processor:0.5.3")
+    annotationProcessor("dev.oreo.modulith:modulith-processor:0.6.0")
 
     // Optional: pick one or more persistence backends
-    implementation("dev.oreo.modulith:modulith-events-sqlite:0.5.3")
-    implementation("dev.oreo.modulith:modulith-events-jdbc:0.5.3")
-    implementation("dev.oreo.modulith:modulith-events-mongodb:0.5.3")
+    implementation("dev.oreo.modulith:modulith-events-sqlite:0.6.0")
+    implementation("dev.oreo.modulith:modulith-events-jdbc:0.6.0")
+    implementation("dev.oreo.modulith:modulith-events-mongodb:0.6.0")
 
     // Optional: Prometheus / OpenTelemetry reporting
-    implementation("dev.oreo.modulith:modulith-observability:0.5.3")
+    implementation("dev.oreo.modulith:modulith-observability:0.6.0")
 
-    testImplementation("dev.oreo.modulith:modulith-test:0.5.3")
+    testImplementation("dev.oreo.modulith:modulith-test:0.6.0")
 }
 ```
 
@@ -147,30 +147,30 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.el211.MinecraftModulith:modulith-paper:v0.5.3")
+    implementation("com.github.el211.MinecraftModulith:modulith-paper:v0.6.0")
 
     annotationProcessor(
-        "com.github.el211.MinecraftModulith:modulith-processor:v0.5.3"
+        "com.github.el211.MinecraftModulith:modulith-processor:v0.6.0"
     )
 
     // Optional: pick one or more persistence backends
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-events-sqlite:v0.5.3"
+        "com.github.el211.MinecraftModulith:modulith-events-sqlite:v0.6.0"
     )
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.5.3"
+        "com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.6.0"
     )
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.5.3"
+        "com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.6.0"
     )
 
     // Optional: Prometheus / OpenTelemetry reporting
     implementation(
-        "com.github.el211.MinecraftModulith:modulith-observability:v0.5.3"
+        "com.github.el211.MinecraftModulith:modulith-observability:v0.6.0"
     )
 
     testImplementation(
-        "com.github.el211.MinecraftModulith:modulith-test:v0.5.3"
+        "com.github.el211.MinecraftModulith:modulith-test:v0.6.0"
     )
 }
 ```
@@ -190,10 +190,10 @@ For platform-independent usage, use `modulith-core` instead of `modulith-paper`.
 | `modulith-observability` | Dependency-free Prometheus exposition and optional OpenTelemetry reporter |
 | `modulith-test` | Module-focused test harness and architecture assertions |
 
-**Oreo Studios Maven** — group `dev.oreo.modulith`, artifact `<name>`, version `0.5.3`  
-**JitPack** — group `com.github.el211.MinecraftModulith`, artifact `<name>`, version `v0.5.3`
+**Oreo Studios Maven** — group `dev.oreo.modulith`, artifact `<name>`, version `0.6.0`
+**JitPack** — group `com.github.el211.MinecraftModulith`, artifact `<name>`, version `v0.6.0`
 
-[Oreo Studios Maven browser](https://maven.oreostudios.fr/#/oreostudioslib/dev/oreo/modulith) · [JitPack build page](https://jitpack.io/#el211/MinecraftModulith/v0.5.3)
+[Oreo Studios Maven browser](https://maven.oreostudios.fr/#/oreostudioslib/dev/oreo/modulith) · [JitPack build page](https://jitpack.io/#el211/MinecraftModulith/v0.6.0)
 
 ## Quick start
 
@@ -564,7 +564,7 @@ modulith = PaperModulith.builder(plugin)
 
 ```kotlin
 // build.gradle.kts
-implementation("com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.5.3")
+implementation("com.github.el211.MinecraftModulith:modulith-events-jdbc:v0.6.0")
 runtimeOnly("org.postgresql:postgresql:42.7.4")
 ```
 
@@ -583,7 +583,7 @@ The schema is created automatically. `JdbcEventPublicationRegistry` also exposes
 
 ```kotlin
 // build.gradle.kts
-implementation("com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.5.3")
+implementation("com.github.el211.MinecraftModulith:modulith-events-mongodb:v0.6.0")
 ```
 
 ```java
@@ -981,7 +981,7 @@ pluginManagement {
 ```kotlin
 // build.gradle.kts
 plugins {
-    id("dev.oreo.minecraft-modulith") version "0.5.3"
+    id("dev.oreo.minecraft-modulith") version "0.6.0"
 }
 ```
 
@@ -1081,7 +1081,7 @@ To publish all library modules to your local Maven repository:
 Current release:
 
 ```text
-v0.5.3
+v0.6.0
 ```
 
 ## License
