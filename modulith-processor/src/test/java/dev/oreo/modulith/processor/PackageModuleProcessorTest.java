@@ -35,7 +35,8 @@ class PackageModuleProcessorTest {
                 """);
         Path homes = source(input, "example/homes/package-info.java", """
                 @dev.oreo.modulith.core.ApplicationModule(
-                    id="homes", allowedDependencies={"economy::payments"})
+                    id="homes", allowedDependencies={"economy::payments"},
+                    uses={"economy::audit"})
                 package example.homes;
                 """);
         Path homeType = source(input, "example/homes/Home.java", """
@@ -51,8 +52,10 @@ class PackageModuleProcessorTest {
         compile(first, null, all);
         assertTrue(Files.exists(first.resolve("example/economy/__MinecraftModulithModule.class")));
         assertTrue(Files.exists(first.resolve("example/homes/__MinecraftModulithModule.class")));
-        assertTrue(Files.readString(first.resolve("META-INF/minecraft-modulith/modules.idx"))
-                .contains("economy|"));
+        String firstIndex = Files.readString(first.resolve("META-INF/minecraft-modulith/modules.idx"));
+        assertTrue(firstIndex.contains("economy|"));
+        assertTrue(firstIndex.contains("homes|example.homes.__MinecraftModulithModule"
+                + "|economy::payments|false|economy::audit"), firstIndex);
 
         // The provider's unchanged package-info is not presented to javac in this pass.
         // The prior module index must establish that economy::payments is not missing.
@@ -62,6 +65,7 @@ class PackageModuleProcessorTest {
         String index = Files.readString(second.resolve("META-INF/minecraft-modulith/modules.idx"));
         assertTrue(index.contains("economy|"), index);
         assertTrue(index.contains("homes|"), index);
+        assertTrue(index.contains("economy::audit"), index);
 
         // A more subtle partial rebuild DOES process economy, but only its 'audit'
         // named interface. Its unchanged 'payments' interface is deliberately absent.

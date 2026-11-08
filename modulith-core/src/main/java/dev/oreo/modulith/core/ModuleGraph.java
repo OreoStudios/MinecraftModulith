@@ -45,6 +45,20 @@ final class ModuleGraph {
                     throw new ModuleDependencyException("Module '" + module.id() + "' cannot depend on itself");
                 }
             }
+            for (String rawUse : module.uses()) {
+                ModuleDependency use;
+                try {
+                    use = ModuleDependency.parse(rawUse);
+                } catch (IllegalArgumentException exception) {
+                    throw new ModuleDependencyException("Module '" + module.id()
+                            + "' has invalid uses selector '" + rawUse + "'");
+                }
+                if (module.id().equals(use.moduleId())) {
+                    throw new ModuleDependencyException("Module '" + module.id() + "' cannot use itself");
+                }
+                // 'uses' deliberately does not require the provider to be installed
+                // and never adds an edge to the startup dependency graph.
+            }
             for (String after : module.after()) {
                 if (after.equals(module.id())) {
                     throw new ModuleDependencyException("Module '" + module.id() + "' cannot start after itself");

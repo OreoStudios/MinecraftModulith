@@ -1,6 +1,13 @@
 package dev.oreo.modulith.example;
 
 import dev.oreo.modulith.core.EventPublicationRegistry;
+import dev.oreo.modulith.example.functors.economy.EconomyParameters;
+import dev.oreo.modulith.example.functors.economy.ParameterizedEconomyModule;
+import dev.oreo.modulith.example.functors.economy.api.EconomyBalanceService;
+import dev.oreo.modulith.example.functors.homes.HomesParameters;
+import dev.oreo.modulith.example.functors.homes.ParameterizedHomesModule;
+import dev.oreo.modulith.example.functors.shop.ShopParameters;
+import dev.oreo.modulith.example.functors.shop.ParameterizedShopModule;
 import dev.oreo.modulith.jdbc.JdbcEventPublicationRegistry;
 import dev.oreo.modulith.mongodb.MongoEventPublicationRegistry;
 import dev.oreo.modulith.paper.PaperModulith;
@@ -28,12 +35,26 @@ public final class ExamplePlugin extends JavaPlugin {
 
         modulith = PaperModulith.builder(this)
                 .basePackage("dev.oreo.modulith.example")
+                // Three independent functor applications: Economy, Homes and Shop
+                // each receive their own strongly typed record parameters.
+                .functor(ParameterizedEconomyModule.class,
+                        new EconomyParameters("coins", 1000),
+                        (params, ctx) -> new ParameterizedEconomyModule(params))
+                .functor(ParameterizedHomesModule.class,
+                        new HomesParameters(5, 30),
+                        (params, ctx) -> new ParameterizedHomesModule(
+                                params, ctx.services().require(EconomyBalanceService.class)))
+                .functor(ParameterizedShopModule.class,
+                        new ShopParameters(0.05, "coins"),
+                        (params, ctx) -> new ParameterizedShopModule(
+                                params, ctx.services().require(EconomyBalanceService.class)))
                 .publicationRegistry((EventPublicationRegistry) publicationRegistry)
                 .diagnosticsCommand(true)   // enables /modulith for minecraftmodulith.admin
                 .start();
 
         getLogger().info("Module graph:\n" + modulith.runtime().graphMermaid());
         getLogger().info("Diagnostics: " + modulith.runtime().diagnostics());
+        getLogger().info("Architecture report:\n" + modulith.runtime().architectureMarkdown());
     }
 
     private AutoCloseable buildRegistry() {

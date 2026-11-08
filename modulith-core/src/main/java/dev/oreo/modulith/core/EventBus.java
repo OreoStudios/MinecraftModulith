@@ -15,6 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Application event bus supporting synchronous/asynchronous listeners, completion policies,
@@ -68,11 +69,34 @@ public final class EventBus {
                     return CompletableFuture.completedFuture(null);
                 }
         );
-        handlers.computeIfAbsent(eventType, ignored -> new CopyOnWriteArrayList<>()).add(handler);
+        addHandler(eventType, handler);
+        return () -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler);
+    }
+
+    /** A staged subscription completes its publication when the returned stage completes. */
+    public <E> Subscription subscribeStage(
+            Class<E> eventType, String listenerId, EventDelivery delivery,
+            Function<? super E, ? extends CompletionStage<Void>> listener) {
+        Objects.requireNonNull(eventType, "eventType");
+        Objects.requireNonNull(listenerId, "listenerId");
+        Objects.requireNonNull(delivery, "delivery");
+        Objects.requireNonNull(listener, "listener");
+        Handler handler = new Handler(listenerId, delivery,
+                event -> Objects.requireNonNull(listener.apply(eventType.cast(event)),
+                        "stage listener returned null"));
+        addHandler(eventType, handler);
         return () -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler);
     }
 
     public List<Subscription> register(Object listener) {
+        return register(listener, null);
+    }
+
+    /**
+     * Registers listeners under a stable instance namespace, preventing
+     * duplicate listener IDs when one module template runs multiple times.
+     */
+    public List<Subscription> register(Object listener, String namespace) {
         Objects.requireNonNull(listener, "listener");
         List<Subscription> subscriptions = new ArrayList<>();
 
@@ -91,16 +115,38 @@ public final class EventBus {
                     ? listener.getClass().getName() + "#" + method.getName() + "(" + eventType.getName() + ")"
                     : annotation.id();
 
+            if (namespace != null) {
+                if (namespace.isBlank()) throw new IllegalArgumentException("namespace cannot be blank");
+                listenerId = namespace + "::" + listenerId;
+            }
             Handler handler = new Handler(
                     listenerId,
                     annotation.delivery(),
                     event -> invoke(listener, method, event)
             );
-            handlers.computeIfAbsent(eventType, ignored -> new CopyOnWriteArrayList<>()).add(handler);
-            subscriptions.add(() -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler));
+            try {
+                addHandler(eventType, handler);
+                subscriptions.add(() -> handlers.getOrDefault(eventType, new CopyOnWriteArrayList<>()).remove(handler));
+            } catch (RuntimeException exception) {
+                subscriptions.forEach(Subscription::close);
+                throw exception;
+            }
         }
 
         return List.copyOf(subscriptions);
+    }
+
+    /** Listener IDs must be unique for each registered event type. */
+    private void addHandler(Class<?> eventType, Handler handler) {
+        CopyOnWriteArrayList<Handler> listeners =
+                handlers.computeIfAbsent(eventType, ignored -> new CopyOnWriteArrayList<>());
+        synchronized (listeners) {
+            if (listeners.stream().anyMatch(existing -> existing.id().equals(handler.id()))) {
+                throw new ModulithException("Duplicate event listener ID '" + handler.id()
+                        + "' for " + eventType.getName());
+            }
+            listeners.add(handler);
+        }
     }
 
     public EventDispatchResult publish(Object event) {
@@ -203,22 +249,28 @@ public final class EventBus {
     }
 
     private CompletableFuture<Void> dispatch(Handler handler, Object event) {
-        String payload = serializer.serialize(event);
-        EventPublication publication = registry.begin(event.getClass().getName(), handler.id(), payload);
+        final EventPublication publication;
+        try {
+            String payload = serializer.serialize(event);
+            publication = registry.begin(event.getClass().getName(), handler.id(), payload);
+        } catch (RuntimeException failure) {
+            metrics.listenerFailed(0);
+            // A persistence failure must not suppress delivery attempts to other listeners.
+            return CompletableFuture.failedFuture(failure);
+        }
         metrics.listenerInvoked();
         long startedAt = System.nanoTime();
 
         CompletableFuture<Void> future;
-        if (handler.delivery() == EventDelivery.ASYNC) {
-            future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
-                    .thenCompose(stage -> stage)
-                    .toCompletableFuture();
-        } else {
-            try {
+        try {
+            if (handler.delivery() == EventDelivery.ASYNC) {
+                future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
+                        .thenCompose(stage -> stage).toCompletableFuture();
+            } else {
                 future = handler.invocation().invoke(event).toCompletableFuture();
-            } catch (RuntimeException exception) {
-                future = CompletableFuture.failedFuture(exception);
             }
+        } catch (RuntimeException exception) {
+            future = CompletableFuture.failedFuture(exception);
         }
 
         UUID publicationId = publication.id();
@@ -285,6 +337,15 @@ public final class EventBus {
         for (int i = 0; i < Math.min(limit, publications.size()); i++) {
             EventPublication publication = publications.get(i);
             var target = handlers.entrySet().stream()
+                    .filter(entry -> {
+                        try {
+                            Class<?> published = Class.forName(publication.eventType(), false,
+                                    entry.getKey().getClassLoader());
+                            return entry.getKey().isAssignableFrom(published);
+                        } catch (ClassNotFoundException | LinkageError ignored) {
+                            return false;
+                        }
+                    })
                     .filter(entry -> entry.getValue().stream()
                             .anyMatch(handler -> handler.id().equals(publication.listenerId())))
                     .findFirst().orElse(null);
@@ -306,12 +367,15 @@ public final class EventBus {
 
     private CompletionStage<Void> invokeExisting(Handler handler, Object event, UUID publicationId) {
         CompletableFuture<Void> future;
-        if (handler.delivery() == EventDelivery.ASYNC) {
-            future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
-                    .thenCompose(stage -> stage).toCompletableFuture();
-        } else {
-            try { future = handler.invocation().invoke(event).toCompletableFuture(); }
-            catch (RuntimeException exception) { future = CompletableFuture.failedFuture(exception); }
+        try {
+            if (handler.delivery() == EventDelivery.ASYNC) {
+                future = CompletableFuture.supplyAsync(() -> handler.invocation().invoke(event), executor)
+                        .thenCompose(stage -> stage).toCompletableFuture();
+            } else {
+                future = handler.invocation().invoke(event).toCompletableFuture();
+            }
+        } catch (RuntimeException exception) {
+            future = CompletableFuture.failedFuture(exception);
         }
         return future.whenComplete((ignored, error) -> {
             if (error == null) registry.complete(publicationId);

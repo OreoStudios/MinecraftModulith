@@ -19,7 +19,11 @@ public final class EventRetryCoordinator {
         this.policy = Objects.requireNonNull(policy);
     }
 
-    public EventRetryTickReport tick(Instant now, int batchSize) {
+    /**
+     * In-process serialized retry tick. A separate process still requires an
+     * external claim/lease mechanism; this is not an exactly-once guarantee.
+     */
+    public synchronized EventRetryTickReport tick(Instant now, int batchSize) {
         Objects.requireNonNull(now);
         if (batchSize < 0) throw new IllegalArgumentException("batchSize must be >= 0");
         int retried = 0, dead = 0, deferred = 0, unavailable = 0;

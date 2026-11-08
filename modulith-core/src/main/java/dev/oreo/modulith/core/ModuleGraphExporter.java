@@ -27,6 +27,12 @@ public final class ModuleGraphExporter {
                 }
                 out.append(" ").append(node(dependency.moduleId())).append("\n");
             }
+            for (String raw : module.uses()) {
+                ModuleDependency dependency = ModuleDependency.parse(raw);
+                out.append("  ").append(node(module.id())).append(" -.->|uses");
+                if (dependency.apiName() != null) out.append("::").append(escape(dependency.apiName()));
+                out.append("| ").append(node(dependency.moduleId())).append("\n");
+            }
             for (String after : module.after()) {
                 out.append("  ").append(node(module.id())).append(" -.-> ").append(node(after)).append("\n");
             }
@@ -53,6 +59,13 @@ public final class ModuleGraphExporter {
                 }
                 out.append(";\n");
             }
+            for (String raw : module.uses()) {
+                ModuleDependency dependency = ModuleDependency.parse(raw);
+                out.append("  \"").append(escape(module.id())).append("\" -> \"")
+                        .append(escape(dependency.moduleId())).append("\" [style=dotted, label=\"uses");
+                if (dependency.apiName() != null) out.append("::").append(escape(dependency.apiName()));
+                out.append("\"];\n");
+            }
             for (String after : module.after()) {
                 out.append("  \"").append(escape(module.id())).append("\" -> \"")
                         .append(escape(after)).append("\" [style=dashed];\n");
@@ -63,7 +76,9 @@ public final class ModuleGraphExporter {
     }
 
     private static String node(String id) {
-        return "m_" + id.replaceAll("[^A-Za-z0-9_]", "_");
+        // Keep labels readable but disambiguate ids such as wallet.east vs wallet_east.
+        return "m_" + id.replaceAll("[^A-Za-z0-9_]", "_")
+                + "_" + Integer.toHexString(id.hashCode());
     }
 
     private static String escape(String value) {
