@@ -102,6 +102,25 @@ real global, region, entity and async routes on player join. See
 [architecture decisions and test instructions](docs/ARCHITECTURE.md).
 These APIs are included in the published 0.6.0 artifacts.
 
+For example, bind the same shop module twice with separate currency APIs:
+
+```java
+record ShopParameters(Currency currency) {}
+
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .bind("shop.normal", ShopModule.class,
+        new ShopParameters(normalCurrency),
+        (params, ctx) -> new ShopModule(params.currency()))
+    .bind("shop.event", ShopModule.class,
+        new ShopParameters(eventCurrency),
+        (params, ctx) -> new ShopModule(params.currency()))
+    .start();
+```
+
+Both instances use the same shop implementation, while each receives its own
+currency. See the [named instance guide](docs/FUNCTORS.md) for selecting
+instance-specific services and dependencies.
+
 ## Installation
 
 MinecraftModulith is published to two repositories — use whichever suits your project.
