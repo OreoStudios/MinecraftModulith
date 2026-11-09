@@ -159,3 +159,30 @@ descriptor, while the event bus shares the runtime and namespaces listeners.
 This is an operational Java analogue of *generative* application. It is not
 OCaml's static generative type system: Java class identity is unchanged,
 and module instance identity is enforced by the runtime registry.
+
+## Stopping one named instance
+
+Once started, a named instance can be stopped independently:
+
+```java
+runtime.stop("shop.alpha");
+// shop.beta continues to serve requests and receive events.
+```
+
+Stopping an instance calls its `disable()` method, saves its module configuration
+when enabled, closes its lifecycle scope (unregistering listeners and cancelling
+module-owned scheduled tasks), withdraws only services owned by that instance,
+and updates its state to `STOPPED`. Repeating `stop(instanceId)` for an already
+stopped instance is harmless. Unknown or non-running instances are rejected.
+
+If another running module **requires** the provider through a startup dependency,
+`stop(instanceId)` rejects the request rather than breaking that dependent.
+An API-only `uses` dependency grants access without pinning the provider's
+lifetime: callers must handle the service disappearing. Full `stop()` still
+shuts down all modules in reverse startup order.
+
+See `NamedInstanceLifecycleIsolationTest` for an isolated same-template fixture
+covering service publication, same-type event listeners, deferred task ownership,
+and shutdown of one instance without stopping its sibling. The task fixture uses
+a deterministic scheduler stand-in; real Paper/Folia delayed scheduler behavior
+still warrants an integration test.
