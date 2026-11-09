@@ -29,8 +29,13 @@ public final class PaperPlatform {
     private final ModuleScheduler contexts;
 
     PaperPlatform(JavaPlugin plugin) {
+        this(plugin, SchedulerAdapter.detect(plugin));
+    }
+
+    // Injectable scheduler for deterministic lifecycle tests without a running server.
+    PaperPlatform(JavaPlugin plugin, SchedulerAdapter scheduler) {
         this.plugin = plugin;
-        this.scheduler = SchedulerAdapter.detect(plugin);
+        this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.contexts = new ModuleScheduler(plugin, scheduler);
     }
 

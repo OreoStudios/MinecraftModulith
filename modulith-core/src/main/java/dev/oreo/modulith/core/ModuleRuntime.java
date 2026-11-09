@@ -216,47 +216,91 @@ public final class ModuleRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * Stop one running module instance without stopping its siblings.
+     *
+     * <p>Required dependents must be stopped first; a {@code uses} relationship
+     * does not prevent shutdown because it is not a lifecycle dependency.
+     * Stopping an already stopped (or never started) known instance is a no-op.</p>
+     *
+     * @throws ModuleDependencyException when a running module requires this instance
+     * @throws ModulithException when the instance ID is not in this runtime
+     */
+    public synchronized void stop(String instanceId) {
+        Objects.requireNonNull(instanceId, "instanceId");
+        if (startupOrder.stream().noneMatch(descriptor -> descriptor.id().equals(instanceId))) {
+            throw new ModulithException("Unknown module instance: " + instanceId);
+        }
+        RunningModule module = running.get(instanceId);
+        if (module == null) {
+            return;
+        }
+        List<String> dependents = running.values().stream()
+                .map(RunningModule::descriptor)
+                .filter(descriptor -> !descriptor.id().equals(instanceId)
+                        && descriptor.dependencyModules().contains(instanceId))
+                .map(ModuleDescriptor::id)
+                .toList();
+        if (!dependents.isEmpty()) {
+            throw new ModuleDependencyException("Cannot stop module instance '" + instanceId
+                    + "' while required by running modules: " + dependents);
+        }
+        stopOne(module);
+    }
+
     private void stopStartedModules() {
         List<RunningModule> modules = new ArrayList<>(running.values());
         Collections.reverse(modules);
         RuntimeException first = null;
-
         for (RunningModule module : modules) {
-            states.put(module.descriptor.id(), ModuleState.STOPPING);
             try {
-                module.instance.disable();
-            } catch (Exception exception) {
-                logger.log(Level.SEVERE,
-                        "[MinecraftModulith] Module disable failed: " + module.descriptor.id(), exception);
-                first = append(first, new ModulithException(
-                        "Failed to disable module '" + module.descriptor.id() + "'", exception
-                ));
-            }
-
-            try {
-                if (module.descriptor.configurationEnabled()) {
-                    module.configuration.save();
-                }
+                stopOne(module);
             } catch (RuntimeException exception) {
-                logger.log(Level.SEVERE,
-                        "[MinecraftModulith] Module configuration save failed: " + module.descriptor.id(), exception);
                 first = append(first, exception);
             }
-
-            try {
-                module.lifecycle.close();
-            } catch (RuntimeException exception) {
-                logger.log(Level.SEVERE,
-                        "[MinecraftModulith] Module cleanup failed: " + module.descriptor.id(), exception);
-                first = append(first, exception);
-            }
-
-            metrics.moduleStopped(module.descriptor.id());
-            states.put(module.descriptor.id(), ModuleState.STOPPED);
         }
-
         running.clear();
         services.clear();
+        if (first != null) {
+            throw first;
+        }
+    }
+
+    private void stopOne(RunningModule module) {
+        String instanceId = module.descriptor.id();
+        states.put(instanceId, ModuleState.STOPPING);
+        RuntimeException first = null;
+        try {
+            module.instance.disable();
+        } catch (Exception exception) {
+            logger.log(Level.SEVERE, "[MinecraftModulith] Module disable failed: " + instanceId, exception);
+            first = append(first, new ModulithException(
+                    "Failed to disable module '" + instanceId + "'", exception));
+        }
+
+        try {
+            if (module.descriptor.configurationEnabled()) {
+                module.configuration.save();
+            }
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE, "[MinecraftModulith] Module configuration save failed: "
+                    + instanceId, exception);
+            first = append(first, exception);
+        }
+
+        try {
+            module.lifecycle.close();
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE, "[MinecraftModulith] Module cleanup failed: " + instanceId, exception);
+            first = append(first, exception);
+        } finally {
+            // Never remove another named instance's services or lifecycle resources.
+            services.values().removeIf(entry -> entry.owner().equals(instanceId));
+            running.remove(instanceId);
+            metrics.moduleStopped(instanceId);
+            states.put(instanceId, ModuleState.STOPPED);
+        }
+
         if (first != null) {
             throw first;
         }

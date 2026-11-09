@@ -7,5 +7,6 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("io.papermc.paper:paper-api:$paperApiVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

@@ -66,6 +66,30 @@ class ModuleInstancesTest {
     }
 
     @Test
+    void cannotStopInstanceWhileRequiredDependentIsRunning() {
+        try (ModuleRuntime runtime = ModuleRuntime.builder()
+                .bind("wallet.east", Wallet.class, new WalletParams(100), (p, ctx) -> new Wallet(p))
+                .bind("wallet.west", Wallet.class, new WalletParams(200), (p, ctx) -> new Wallet(p))
+                .bind("reader.default", Reader.class, "ignored", (p, ctx) -> new Reader())
+                .dependsOn("reader.default", "wallet.east::balance", "wallet.west::balance")
+                .start()) {
+            ModuleDependencyException failure = assertThrows(ModuleDependencyException.class,
+                    () -> runtime.stop("wallet.east"));
+            assertTrue(failure.getMessage().contains("reader.default"));
+            assertEquals(ModuleState.RUNNING, runtime.states().get("wallet.east"));
+            assertEquals(2, runtime.diagnostics().publishedServices());
+
+            runtime.stop("reader.default");
+            runtime.stop("wallet.east");
+            runtime.stop("wallet.east"); // Idempotent for a known, stopped instance.
+            assertThrows(ModulithException.class, () -> runtime.stop("wallet.unknown"));
+            assertEquals(ModuleState.STOPPED, runtime.states().get("wallet.east"));
+            assertEquals(ModuleState.RUNNING, runtime.states().get("wallet.west"));
+            assertEquals(1, runtime.diagnostics().publishedServices());
+        }
+    }
+
+    @Test
     void instancesWithSameTemplateHaveIndependentComponentContexts() {
         try (ModuleRuntime runtime = ModuleRuntime.builder()
                 .bind("wallet.east", Wallet.class, new WalletParams(50), (p, ctx) -> {

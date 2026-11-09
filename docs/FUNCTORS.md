@@ -159,3 +159,20 @@ descriptor, while the event bus shares the runtime and namespaces listeners.
 This is an operational Java analogue of *generative* application. It is not
 OCaml's static generative type system: Java class identity is unchanged,
 and module instance identity is enforced by the runtime registry.
+
+## Stopping a named instance
+
+Use `runtime.stop("shop.alpha")` to stop just one running instance. This calls
+its `disable()` hook, saves its configuration, closes its lifecycle scope (including
+listener subscriptions and pending Paper/Folia scheduled tasks), and removes only
+services published by that **instance ID**. Other instances of the same template
+remain running, with their services, listeners and tasks intact.
+
+A running module that declares `dependsOn("consumer", "shop.alpha::catalog")`
+prevents stopping `shop.alpha`; stop required dependents first. A `uses`
+relationship grants access but does not prevent stopping an optional collaborator.
+A known already-stopped instance is a no-op; an unknown ID is rejected.
+
+The instance-level stop API is not a hot-restart operation: to reinitialize a
+stopped instance, stop and start the entire runtime. The no-argument `stop()`
+continues to shut down all running modules in reverse order.
