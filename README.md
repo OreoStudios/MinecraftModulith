@@ -121,6 +121,193 @@ Both instances use the same shop implementation, while each receives its own
 currency. See the [named instance guide](docs/FUNCTORS.md) for selecting
 instance-specific services and dependencies.
 
+## Independent module lifecycle management
+
+MinecraftModulith supports **multiple named instances of one module template** and
+**independent enable, disable, restart, and configuration reload** for any registered
+module ID. Unlike a global restart, these operations leave unrelated modules
+running. Named instances retain separate parameters, services, components,
+configuration, event listeners, and lifecycle-owned resources.
+
+### Bind multiple instances of one module
+
+Use `bind(instanceId, moduleType, parameters, functor)` instead of
+`functor()` when one annotated module template needs multiple independent
+instances:
+
+```java
+record ShopOptions(String currency) {}
+
+ModuleRuntime runtime = ModuleRuntime.builder()
+    .bind("shop.alpha", ShopModule.class, new ShopOptions("coins"),
+        (options, ctx) -> new ShopModule(options.currency()))
+    .bind("shop.beta", ShopModule.class, new ShopOptions("gems"),
+        (options, ctx) -> new ShopModule(options.currency()))
+    .start();
+```
+
+`ShopModule` is an annotated `@PluginModule("shop")` implementation. Each
+instance can publish the **same** `@ModuleApi("shop")` service contract:
+the registry keys publications by **provider instance ID and API type**.
+To resolve a specific provider inside an authorized consumer:
+
+```java
+@PluginModule(value = "checkout", uses = "shop::shop")
+public final class CheckoutModule implements MinecraftModule {
+    @Override
+    public void enable(ModuleContext ctx) {
+        ShopApi alpha = ctx.services().require("shop.alpha", ShopApi.class);
+        ShopApi beta = ctx.services().require(
+            new ServiceKey<>("shop.beta", ShopApi.class));
+    }
+}
+```
+
+This assumes `ShopApi` is the public API published by both shops.
+For a consumer that **must** start after named providers, bind it and declare
+explicit instance requirements:
+
+```java
+.bind("checkout.default", CheckoutModule.class, "checkout",
+    (parameters, ctx) -> new CheckoutModule())
+.dependsOn("checkout.default", "shop.alpha::shop", "shop.beta::shop")
+```
+
+A plain `require(ShopApi.class)` succeeds only if **one** accessible instance
+publishes the contract; it reports an ambiguity if several match.
+The annotated template ID is used for compile-time access rules, while the
+instance ID identifies runtime services and resources. Find complete, runnable
+examples and typing details in the [functor and named-instance guide](docs/FUNCTORS.md).
+
+### Start, stop, restart, or reload one instance
+
+After initializing the runtime with `.start()`, manage one module without
+restarting every other module:
+
+```java
+runtime.stop("shop.alpha");     // Disable only alpha and release its resources
+runtime.start("shop.alpha");    // Re-enable alpha using a new instance and scope
+runtime.restart("shop.alpha");  // Full stop + start of alpha
+runtime.reload("shop.alpha");   // Configuration-only reload (opt-in modules)
+
+// All operations also accept ordinary, non-named module IDs:
+runtime.restart("economy");
+```
+
+| Method | What it does | Preconditions |
+| --- | --- | --- |
+| `start(id)` | Creates a new module object, context, components, and lifecycle; runs `enable()` and republishes APIs | Global runtime has started; required providers are `RUNNING` |
+| `stop(id)` | Runs `disable()`, saves opt-in configuration, closes the lifecycle and removes the instance's published services | No other running module has a **required** dependency on this instance |
+| `restart(id)` | Performs a full `stop(id)` followed by `start(id)`, replacing the module and owned resources | Instance is running and has no running required dependents |
+| `reload(id)` | Reloads configuration in place, then invokes `MinecraftModule.reload(context)` | Instance is running and `configuration = true` |
+
+Repeated `start(id)` on a running instance and `stop(id)` on an already stopped
+instance are harmless. Unknown IDs are rejected. A failed or previously skipped
+module can be started explicitly after its dependencies and failure conditions
+have been corrected. Use `runtime.states()` and `runtime.failures()` to inspect
+instance status and recorded startup failures.
+
+**Lifecycle isolation:** when a module stops or restarts, its registered
+lifecycle cleanup callbacks run. This unregisters module-owned event listeners,
+cancels tasks registered with the lifecycle (including Paper/Folia scheduling
+adapters), and removes services owned by that instance. Other instances of the
+same Java module class remain running, with their own services, listeners, and
+tasks. Tasks that your own code schedules **without registering lifecycle cleanup**
+cannot be automatically cancelled.
+
+### Reload configuration without replacing the module
+
+Configuration reload is **not** a full module restart. Enable module
+configuration and optionally implement `reload(ModuleContext)` to apply the
+refreshed values to your running instance:
+
+```java
+@PluginModule(value = "shop", configuration = true)
+public final class ShopModule implements MinecraftModule {
+    private double taxRate;
+
+    @Override
+    public void enable(ModuleContext ctx) {
+        applyConfig(ctx);
+        // Register listeners, services, and tasks here as needed.
+    }
+
+    @Override
+    public void reload(ModuleContext ctx) {
+        applyConfig(ctx);
+    }
+
+    private void applyConfig(ModuleContext ctx) {
+        taxRate = ctx.config().getDouble("tax-rate", 0.05);
+    }
+}
+
+// Refresh the module's configuration and call reload(context):
+runtime.reload("shop.alpha");
+```
+
+`reload(id)` first calls `ModuleConfiguration.reload()` on the **existing**
+configuration object and then the module's `reload(context)` callback.
+For Paper, the YAML provider reloads the instance's
+`plugins/<YourPlugin>/modules/<instance-id>.yml`. Custom configuration
+providers should implement `ModuleConfiguration.reload()` if they support
+live configuration changes. Reload does **not** recreate components, listeners,
+services, or scheduled tasks. Use `restart(id)` when a fresh lifecycle is needed.
+
+If configuration reload or the module callback throws, the operation reports a
+`ModulithException`, but the module remains `RUNNING`; partially applied
+configuration is not automatically rolled back. The default module reload
+callback is a no-op, so modules that cache config values must implement it.
+
+### Dependency and failure safety
+
+- **Required dependencies** (`dependencies` or instance-level `dependsOn`)
+  must already be `RUNNING` before an instance starts. Stopping or restarting
+  a provider is **rejected** while another running module requires it; stop
+  such dependents first, then restart them explicitly if needed.
+- **API-only `uses` dependencies** grant access without lifecycle pinning.
+  Consumers remain running if a provider disappears and must handle absent
+  services or re-resolve them after restart. `after` affects initial ordering,
+  not ongoing availability.
+- **Start/restart failure:** if enabling a new instance fails, the failed
+  lifecycle is closed and its services are withdrawn, leaving the instance
+  `FAILED`. A failed restart does not restore the previous instance; call
+  `start(id)` after fixing the problem.
+- **Global shutdown** (`runtime.stop()` or `runtime.close()`) still stops all
+  running modules in reverse startup order. Independent operations do not
+  persistently disable an instance across a future full server/runtime startup.
+
+### Paper/Folia access and testing
+
+The API lives on `ModuleRuntime`. For a plugin bootstrapped through
+`PaperModulith`, use `modulith.runtime()`:
+
+```java
+PaperModulith modulith = PaperModulith.builder(this)
+    .basePackage("dev.example.myplugin")
+    .start();
+
+modulith.runtime().stop("shop.alpha");
+modulith.runtime().start("shop.alpha");
+modulith.runtime().restart("shop.alpha");
+modulith.runtime().reload("shop.alpha");
+```
+
+`/modulith` remains a **diagnostics** command (`modules`, `events`, `graph`);
+it does **not** currently expose enable/disable/restart/reload subcommands.
+Respect Bukkit/Paper and Folia thread/region-affinity requirements when your
+module registers or replaces platform resources.
+
+Regression coverage:
+[NamedInstanceLifecycleIsolationTest](modulith-core/src/test/java/dev/oreo/modulith/core/NamedInstanceLifecycleIsolationTest.java)
+and
+[ModuleLifecycleManagementTest](modulith-core/src/test/java/dev/oreo/modulith/core/ModuleLifecycleManagementTest.java)
+verify same-type listener/service isolation, pending task cleanup, independent
+startup/restart, configuration reload, dependency guards, and failed-start
+recovery. Delayed tasks use a deterministic test stand-in; real Paper/Folia
+scheduling should also be verified on a running server.
+
+
 ## Installation
 
 MinecraftModulith is published to two repositories — use whichever suits your project.
@@ -400,6 +587,7 @@ public final class MyPlugin extends JavaPlugin {
 ```
 
 The runtime discovers modules, validates their dependencies, starts them in deterministic order, and shuts them down safely.
+You can also [enable, disable, restart, or reload individual module instances](#independent-module-lifecycle-management) without restarting the entire plugin.
 
 ## Optional modules
 
@@ -742,6 +930,10 @@ plugins/<YourPlugin>/modules/<module>.yml
 
 Bundled module YAML files can be copied from the plugin JAR as defaults.
 
+For live, per-instance configuration refresh without rebuilding the module,
+see [Independent module lifecycle management](#independent-module-lifecycle-management)
+and implement the optional `MinecraftModule.reload(ModuleContext)` callback.
+
 ## Paper & Folia scheduling
 
 MinecraftModulith provides scheduling adapters for Paper and Folia, but **you must still choose the correct execution context**. On Folia, the global scheduler does **not** own player, entity, or block state. Scheduling alone does not make arbitrary Bukkit calls thread-safe.
@@ -1025,6 +1217,11 @@ Projects without `modulith-processor` on the annotation processor classpath will
 | Compile-time architecture validation | ✅ |
 | Runtime dependency validation | ✅ |
 | Deterministic lifecycle ordering | ✅ |
+| Multiple named instances of the same module template | ✅ |
+| Instance-qualified service publishing and lookup | ✅ |
+| Independent module start/stop/restart | ✅ |
+| Configuration-only module reload callback | ✅ |
+| Required-dependency-safe instance shutdown | ✅ |
 | Module event bus | ✅ |
 | Async event delivery | ✅ |
 | Event completion policies | ✅ |
