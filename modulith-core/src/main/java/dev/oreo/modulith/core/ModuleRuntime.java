@@ -102,6 +102,76 @@ public final class ModuleRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * Starts a single stopped, failed or previously skipped module instance in an
+     * already-started runtime. Required dependencies must already be running.
+     * Does not automatically start dependency modules or unaffected instances.
+     */
+    public synchronized void start(String instanceId) {
+        ModuleDescriptor descriptor = descriptor(instanceId);
+        if (!started) {
+            throw new ModulithException("Runtime is not started; call start() before starting individual modules");
+        }
+        if (running.containsKey(instanceId)) return;
+        String unavailable = unavailableDependency(descriptor);
+        if (unavailable != null) {
+            throw new ModulithException("Cannot start module '" + instanceId
+                    + "': required dependency '" + unavailable + "' is " + states.get(unavailable));
+        }
+        try {
+            startOne(descriptor);
+            failures.remove(instanceId);
+        } catch (ModulithException exception) {
+            failures.put(instanceId, rootCause(exception));
+            throw exception;
+        }
+    }
+
+    /**
+     * Replaces one running module instance with a fresh module and lifecycle.
+     * Required dependents must first be stopped explicitly; API-only consumers
+     * are not restarted and must handle changes in their provider.
+     */
+    public synchronized void restart(String instanceId) {
+        requireRunning(instanceId);
+        stop(instanceId); // validates required dependents before any side effects
+        start(instanceId);
+    }
+
+    /**
+     * Reloads configuration in place and notifies the running module.
+     * Unlike restart(), preserves the module object, services and lifecycle.
+     */
+    public synchronized void reload(String instanceId) {
+        RunningModule module = requireRunning(instanceId);
+        if (!module.descriptor.configurationEnabled()) {
+            throw new ModulithException("Module '" + instanceId + "' has no enabled configuration to reload");
+        }
+        try {
+            module.configuration.reload();
+            module.instance.reload(module.context);
+        } catch (Exception exception) {
+            throw new ModulithException("Failed to reload module '" + instanceId + "'", exception);
+        }
+    }
+
+    private ModuleDescriptor descriptor(String instanceId) {
+        Objects.requireNonNull(instanceId, "instanceId");
+        return startupOrder.stream()
+                .filter(descriptor -> descriptor.id().equals(instanceId))
+                .findFirst()
+                .orElseThrow(() -> new ModulithException("Unknown module instance: " + instanceId));
+    }
+
+    private RunningModule requireRunning(String instanceId) {
+        descriptor(instanceId);
+        RunningModule module = running.get(instanceId);
+        if (module == null) {
+            throw new ModulithException("Module instance is not running: " + instanceId);
+        }
+        return module;
+    }
+
     private String unavailableDependency(ModuleDescriptor descriptor) {
         for (String dependency : descriptor.dependencyModules()) {
             if (states.get(dependency) != ModuleState.RUNNING) {
@@ -162,7 +232,7 @@ public final class ModuleRuntime implements AutoCloseable {
             components.initialize();
             MinecraftModule instance = instantiate(descriptor, context);
             instance.enable(context);
-            running.put(descriptor.id(), new RunningModule(descriptor, instance, lifecycle, configuration));
+            running.put(descriptor.id(), new RunningModule(descriptor, instance, context, lifecycle, configuration));
             states.put(descriptor.id(), ModuleState.RUNNING);
             metrics.moduleStarted(descriptor.id(), System.nanoTime() - startedAt);
             logger.info(() -> "[MinecraftModulith] Started module '" + descriptor.id() + "'");
@@ -216,50 +286,76 @@ public final class ModuleRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * Stops one named module instance without stopping unrelated instances.
+     *
+     * <p>A running module cannot be stopped while another running module declares
+     * it as a required dependency. API-only uses selectors do not prevent stop;
+     * consumers must handle the provider becoming unavailable.</p>
+     */
+    public synchronized void stop(String instanceId) {
+        Objects.requireNonNull(instanceId, "instanceId");
+        if (!states.containsKey(instanceId)) {
+            throw new ModulithException("Unknown module instance: " + instanceId);
+        }
+        RunningModule target = running.get(instanceId);
+        if (target == null) {
+            if (states.get(instanceId) == ModuleState.STOPPED) return;
+            throw new ModulithException("Module instance is not running: " + instanceId);
+        }
+        for (RunningModule other : running.values()) {
+            if (!other.descriptor.id().equals(instanceId)
+                    && other.descriptor.dependencyModules().contains(instanceId)) {
+                throw new ModulithException("Cannot stop module instance '" + instanceId
+                        + "' while required by running module '" + other.descriptor.id() + "'");
+            }
+        }
+        RuntimeException failure = stopOne(target);
+        if (failure != null) throw failure;
+    }
+
     private void stopStartedModules() {
         List<RunningModule> modules = new ArrayList<>(running.values());
         Collections.reverse(modules);
         RuntimeException first = null;
-
         for (RunningModule module : modules) {
-            states.put(module.descriptor.id(), ModuleState.STOPPING);
-            try {
-                module.instance.disable();
-            } catch (Exception exception) {
-                logger.log(Level.SEVERE,
-                        "[MinecraftModulith] Module disable failed: " + module.descriptor.id(), exception);
-                first = append(first, new ModulithException(
-                        "Failed to disable module '" + module.descriptor.id() + "'", exception
-                ));
-            }
-
-            try {
-                if (module.descriptor.configurationEnabled()) {
-                    module.configuration.save();
-                }
-            } catch (RuntimeException exception) {
-                logger.log(Level.SEVERE,
-                        "[MinecraftModulith] Module configuration save failed: " + module.descriptor.id(), exception);
-                first = append(first, exception);
-            }
-
-            try {
-                module.lifecycle.close();
-            } catch (RuntimeException exception) {
-                logger.log(Level.SEVERE,
-                        "[MinecraftModulith] Module cleanup failed: " + module.descriptor.id(), exception);
-                first = append(first, exception);
-            }
-
-            metrics.moduleStopped(module.descriptor.id());
-            states.put(module.descriptor.id(), ModuleState.STOPPED);
+            RuntimeException failure = stopOne(module);
+            if (failure != null) first = append(first, failure);
         }
-
-        running.clear();
         services.clear();
-        if (first != null) {
-            throw first;
+        if (first != null) throw first;
+    }
+
+    /** Always release instance-owned resources, even if disable or save fails. */
+    private RuntimeException stopOne(RunningModule module) {
+        String instanceId = module.descriptor.id();
+        states.put(instanceId, ModuleState.STOPPING);
+        RuntimeException first = null;
+        try {
+            module.instance.disable();
+        } catch (Exception exception) {
+            logger.log(Level.SEVERE, "[MinecraftModulith] Module disable failed: " + instanceId, exception);
+            first = append(first, new ModulithException(
+                    "Failed to disable module '" + instanceId + "'", exception));
         }
+        try {
+            if (module.descriptor.configurationEnabled()) module.configuration.save();
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE, "[MinecraftModulith] Module configuration save failed: " + instanceId, exception);
+            first = append(first, exception);
+        }
+        try {
+            module.lifecycle.close();
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE, "[MinecraftModulith] Module cleanup failed: " + instanceId, exception);
+            first = append(first, exception);
+        } finally {
+            services.values().removeIf(entry -> entry.owner().equals(instanceId));
+            running.remove(instanceId);
+            metrics.moduleStopped(instanceId);
+            states.put(instanceId, ModuleState.STOPPED);
+        }
+        return first;
     }
 
     private static RuntimeException append(RuntimeException first, RuntimeException next) {
@@ -527,6 +623,7 @@ public final class ModuleRuntime implements AutoCloseable {
     private record RunningModule(
             ModuleDescriptor descriptor,
             MinecraftModule instance,
+            ModuleContext context,
             LifecycleScope lifecycle,
             ModuleConfiguration configuration
     ) {

@@ -159,3 +159,56 @@ descriptor, while the event bus shares the runtime and namespaces listeners.
 This is an operational Java analogue of *generative* application. It is not
 OCaml's static generative type system: Java class identity is unchanged,
 and module instance identity is enforced by the runtime registry.
+
+## Independent lifecycle management
+
+Once started, a named instance can be stopped independently:
+
+```java
+runtime.stop("shop.alpha");     // disable only alpha
+runtime.start("shop.alpha");    // enable alpha with a fresh instance and scope
+runtime.restart("shop.alpha");  // stop + start alpha (full replacement)
+runtime.reload("shop.alpha");   // refresh alpha's configuration in place
+
+// shop.beta continues to serve requests and receive events.
+```
+
+`stop(instanceId)` calls the module's `disable()`, saves opt-in configuration,
+closes its lifecycle scope (unregistering listeners and cancelling owned tasks),
+withdraws only services owned by that instance, and marks it `STOPPED`. Calling
+it again on an already stopped instance is harmless.
+
+`start(instanceId)` runs only within a previously globally started runtime
+(`builder.start()` or `runtime.start()`). It creates a **new module object**,
+component graph, context and lifecycle scope, and republishes APIs. Required
+providers must already be running; no dependency auto-start or cascade occurs.
+A running instance is not constructed twice. A failed instance can be explicitly
+retried after correcting the failure.
+
+`restart(instanceId)` is a full stop followed by start, so stale scheduled tasks,
+listeners and services are released before the replacement starts. The module must
+already be running, and this operation does not implicitly restart dependents.
+If startup fails, that instance remains in `FAILED` state, without its old resources.
+
+`reload(instanceId)` is **configuration-only**. The module must be running and
+opted in via `@PluginModule(configuration = true)`. The existing
+`ModuleConfiguration.reload()` is invoked, then the module's optional
+`MinecraftModule.reload(ModuleContext)` callback is invoked. This leaves the
+module instance, services, components, listeners and scheduled tasks intact.
+Implement `reload()` in custom configuration providers to support live reload;
+the Paper YAML provider already does. If either reload step throws, the failure
+is reported, but the module remains running; the caller is responsible for
+recovering any partially refreshed configuration. Full lifecycle replacement
+requires `restart(instanceId)`, not `reload(instanceId)`.
+
+If another running module **requires** the provider through a startup dependency,
+`stop(instanceId)` and `restart(instanceId)` reject the request rather than breaking that dependent.
+An API-only `uses` dependency grants access without pinning the provider's
+lifetime: callers must handle the service disappearing. Full `stop()` still
+shuts down all modules in reverse startup order.
+
+See `NamedInstanceLifecycleIsolationTest` for an isolated same-template fixture
+covering service publication, same-type event listeners, deferred task ownership,
+and shutdown of one instance without stopping its sibling. The task fixture uses
+a deterministic scheduler stand-in; real Paper/Folia delayed scheduler behavior
+still warrants an integration test.
