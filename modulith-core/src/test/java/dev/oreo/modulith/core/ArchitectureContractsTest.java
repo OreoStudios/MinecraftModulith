@@ -62,12 +62,12 @@ class ArchitectureContractsTest {
     void stopFailureNeverLeavesRuntimeMarkedStarted() {
         BadStop.starts = 0;
         ModuleRuntime runtime = ModuleRuntime.builder().module(BadStop.class).start();
-        assertThrows(ModulithException.class, runtime::stop);
+        assertThrows(ModulithException.class, () -> runtime.stop());
         assertEquals(ModuleState.STOPPED, runtime.states().get("stoppable"));
-        assertDoesNotThrow(runtime::stop);
+        assertDoesNotThrow(() -> runtime.stop());
         assertDoesNotThrow(runtime::start);
         assertEquals(2, BadStop.starts);
-        assertThrows(ModulithException.class, runtime::stop);
+        assertThrows(ModulithException.class, () -> runtime.stop());
     }
 
     @PluginModule("required")
