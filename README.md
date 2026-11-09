@@ -13,6 +13,8 @@ MinecraftModulith helps you build large Paper/Folia plugins as a set of explicit
 > **Java:** 21  
 > **Platform:** Paper 1.21.x + Folia-aware scheduling
 
+**Maven repository:** [Oreo Studios Maven](https://maven.oreostudios.fr/#/oreostudioslib/dev/oreo/modulith) · [Browse GitHub build artifacts](https://github.com/OreoStudios/MinecraftModulith/actions/workflows/ci.yml)
+
 ## Why MinecraftModulith?
 
 Large plugins often grow into a web of managers, listeners, services, commands, and direct implementation dependencies.

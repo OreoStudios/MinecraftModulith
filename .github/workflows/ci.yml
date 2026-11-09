@@ -20,3 +20,9 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew clean build publishToMavenLocal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: minecraftmodulith-jars-${{ github.sha }}
+          path: '**/build/libs/*.jar'
+          if-no-files-found: error
+          retention-days: 30
