@@ -99,6 +99,23 @@ class ModuleLifecycleManagementTest {
         @Override public void save() { saves++; }
     }
 
+    @PluginModule("failure-probe")
+    static final class FailureProbe implements MinecraftModule {
+        private final AtomicBoolean failNext;
+        private final AtomicInteger cleanups;
+
+        FailureProbe(AtomicBoolean failNext, AtomicInteger cleanups) {
+            this.failNext = failNext;
+            this.cleanups = cleanups;
+        }
+
+        @Override
+        public void enable(ModuleContext context) {
+            context.lifecycle().onClose(cleanups::incrementAndGet);
+            if (failNext.getAndSet(false)) throw new IllegalStateException("injected");
+        }
+    }
+
     @Test
     void startAndRestartRecreateOnlyTargetInstanceAndItsResources() {
         List<Shop> alphaInstances = new ArrayList<>();
@@ -242,15 +259,9 @@ class ModuleLifecycleManagementTest {
     void failedInstanceStartCleansItsScopeAndCanBeRetried() {
         AtomicBoolean failNext = new AtomicBoolean(false);
         AtomicInteger cleanups = new AtomicInteger();
-        @PluginModule("failure-probe")
-        class FailureProbe implements MinecraftModule {
-            @Override public void enable(ModuleContext context) {
-                context.lifecycle().onClose(cleanups::incrementAndGet);
-                if (failNext.getAndSet(false)) throw new IllegalStateException("injected");
-            }
-        }
         try (ModuleRuntime runtime = ModuleRuntime.builder()
-                .bind("failure.one", FailureProbe.class, "unused", (p, ctx) -> new FailureProbe())
+                .bind("failure.one", FailureProbe.class, "unused",
+                        (p, ctx) -> new FailureProbe(failNext, cleanups))
                 .start()) {
             runtime.stop("failure.one");
             assertEquals(1, cleanups.get());
