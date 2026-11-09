@@ -65,7 +65,7 @@ class ArchitectureContractsTest {
         assertThrows(ModulithException.class, () -> runtime.stop());
         assertEquals(ModuleState.STOPPED, runtime.states().get("stoppable"));
         assertDoesNotThrow(() -> runtime.stop());
-        assertDoesNotThrow(runtime::start);
+        assertDoesNotThrow(() -> runtime.start());
         assertEquals(2, BadStop.starts);
         assertThrows(ModulithException.class, () -> runtime.stop());
     }
