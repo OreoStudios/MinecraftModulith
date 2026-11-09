@@ -136,6 +136,25 @@ Use `bind(instanceId, moduleType, parameters, functor)` instead of
 instances:
 
 ```java
+@ModuleApi("shop")
+public interface ShopApi {
+    String currency();
+}
+
+@PluginModule(value = "shop", configuration = true)
+public final class ShopModule implements MinecraftModule, ShopApi {
+    private final String currency;
+
+    public ShopModule(String currency) { this.currency = currency; }
+
+    @Override public String currency() { return currency; }
+
+    @Override
+    public void enable(ModuleContext ctx) {
+        ctx.services().publish(ShopApi.class, this);
+    }
+}
+
 record ShopOptions(String currency) {}
 
 ModuleRuntime runtime = ModuleRuntime.builder()
@@ -146,9 +165,8 @@ ModuleRuntime runtime = ModuleRuntime.builder()
     .start();
 ```
 
-`ShopModule` is an annotated `@PluginModule("shop")` implementation. Each
-instance can publish the **same** `@ModuleApi("shop")` service contract:
-the registry keys publications by **provider instance ID and API type**.
+Both named instances publish the **same** `@ModuleApi("shop")` service contract.
+The service registry keys publications by **provider instance ID and API type**.
 To resolve a specific provider inside an authorized consumer:
 
 ```java
@@ -251,7 +269,9 @@ configuration object and then the module's `reload(context)` callback.
 For Paper, the YAML provider reloads the instance's
 `plugins/<YourPlugin>/modules/<instance-id>.yml`. Custom configuration
 providers should implement `ModuleConfiguration.reload()` if they support
-live configuration changes. Reload does **not** recreate components, listeners,
+live configuration changes. Plain `ModuleRuntime.builder()` uses a no-op
+configuration provider unless you supply one explicitly; `PaperModulith`
+wires its YAML configuration provider by default. Reload does **not** recreate components, listeners,
 services, or scheduled tasks. Use `restart(id)` when a fresh lifecycle is needed.
 
 If configuration reload or the module callback throws, the operation reports a
@@ -285,8 +305,13 @@ The API lives on `ModuleRuntime`. For a plugin bootstrapped through
 ```java
 PaperModulith modulith = PaperModulith.builder(this)
     .basePackage("dev.example.myplugin")
+    .bind("shop.alpha", ShopModule.class, new ShopOptions("coins"),
+        (options, ctx) -> new ShopModule(options.currency()))
+    .bind("shop.beta", ShopModule.class, new ShopOptions("gems"),
+        (options, ctx) -> new ShopModule(options.currency()))
     .start();
 
+// These calls can be used individually when appropriate:
 modulith.runtime().stop("shop.alpha");
 modulith.runtime().start("shop.alpha");
 modulith.runtime().restart("shop.alpha");
